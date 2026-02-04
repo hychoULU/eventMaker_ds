@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DungeonSettlers Event Editor - v2.4 (Undo & Save Support)</title>
+    <title>DungeonSettlers Event Editor - v2.6 (Choice Direct Edit Support)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -52,7 +52,6 @@
             pointer-events: none;
             filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
         }
-        /* 알림 메시지 스타일 */
         .toast {
             position: fixed;
             bottom: 20px;
@@ -116,6 +115,11 @@
             const [importText, setImportText] = useState("");
             const [toast, setToast] = useState({ show: false, message: "" });
 
+            // 인플레이스 편집 상태
+            const [editingNodeCommentId, setEditingNodeCommentId] = useState(null);
+            const [editingChoiceCommentId, setEditingChoiceCommentId] = useState(null);
+            const [tempComment, setTempComment] = useState("");
+
             const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, content: "" });
             const [draggingChoiceId, setDraggingChoiceId] = useState(null);
             const [dropTargetId, setDropTargetId] = useState(null);
@@ -123,15 +127,13 @@
             const canvasRef = useRef(null);
             const elementRefs = useRef({});
 
-            // --- 히스토리 상태 ---
             const [undoStack, setUndoStack] = useState([]);
             const [redoStack, setRedoStack] = useState([]);
 
-            // 현재 상태를 히스토리에 기록하는 함수
             const recordHistory = useCallback(() => {
                 const snapshot = JSON.stringify({ events, nodes, choices });
-                setUndoStack(prev => [...prev.slice(-49), snapshot]); // 최대 50단계 저장
-                setRedoStack([]); // 새로운 행동 발생 시 리두 스택 초기화
+                setUndoStack(prev => [...prev.slice(-49), snapshot]);
+                setRedoStack([]);
             }, [events, nodes, choices]);
 
             const performUndo = useCallback(() => {
@@ -139,14 +141,12 @@
                 const currentSnapshot = JSON.stringify({ events, nodes, choices });
                 const prevSnapshotStr = undoStack[undoStack.length - 1];
                 const prevSnapshot = JSON.parse(prevSnapshotStr);
-
                 setRedoStack(prev => [...prev, currentSnapshot]);
                 setUndoStack(prev => prev.slice(0, -1));
-
                 setEvents(prevSnapshot.events);
                 setNodes(prevSnapshot.nodes);
                 setChoices(prevSnapshot.choices);
-                showToast("되돌리기 실행됨 (Undo)");
+                showToast("되돌리기 완료");
             }, [undoStack, events, nodes, choices]);
 
             const performRedo = useCallback(() => {
@@ -154,14 +154,12 @@
                 const currentSnapshot = JSON.stringify({ events, nodes, choices });
                 const nextSnapshotStr = redoStack[redoStack.length - 1];
                 const nextSnapshot = JSON.parse(nextSnapshotStr);
-
                 setUndoStack(prev => [...prev, currentSnapshot]);
                 setRedoStack(prev => prev.slice(0, -1));
-
                 setEvents(nextSnapshot.events);
                 setNodes(nextSnapshot.nodes);
                 setChoices(nextSnapshot.choices);
-                showToast("다시 실행됨 (Redo)");
+                showToast("다시 실행 완료");
             }, [redoStack, events, nodes, choices]);
 
             const showToast = (msg) => {
@@ -169,7 +167,6 @@
                 setTimeout(() => setToast({ show: false, message: "" }), 2000);
             };
 
-            // --- Data Utils ---
             const downloadJSON = useCallback(() => {
                 const data = { events, nodes, choices };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -181,7 +178,6 @@
                 showToast("JSON 파일로 저장되었습니다!");
             }, [events, nodes, choices]);
 
-            // --- 단축키 핸들러 ---
             useEffect(() => {
                 const handleKeyDown = (e) => {
                     const isMod = e.ctrlKey || e.metaKey;
@@ -203,7 +199,6 @@
                 return () => window.removeEventListener('keydown', handleKeyDown);
             }, [performUndo, performRedo, downloadJSON]);
 
-            // --- ID 생성 헬퍼 ---
             const getEventSummary = (eventId) => {
                 if (!eventId) return "E";
                 const parts = eventId.split('_');
@@ -218,14 +213,12 @@
                 return parts[2] || "N";
             };
 
-            // --- CRUD Functions (Wrap with recordHistory) ---
             const createEvent = (type) => {
                 recordHistory();
                 const sameTypeEvents = events.filter(e => e.EventType === type);
                 const newEventId = `Event_${type}${sameTypeEvents.length}`;
                 const eventSummary = getEventSummary(newEventId);
                 const startNodeId = `Node_${eventSummary}_00`;
-
                 const newEvent = {
                     EventID: newEventId, DevComment: "새 이벤트 설명", StartNodeID: startNodeId,
                     StartCondition: "None", TargetUnitCondition: "None", EventType: type,
@@ -235,7 +228,6 @@
                     NodeID: startNodeId, DevComment: "이벤트 시작 지점", LinkedEventID: newEventId,
                     NodeType: "Normal", ChoiceIDs: [], depth: 0
                 };
-
                 setEvents([...events, newEvent]);
                 setNodes([...nodes, firstNode]);
                 setSelectedEventId(newEventId);
@@ -250,7 +242,6 @@
                 const depthStr = depth.toString().padStart(1, '0');
                 const orderStr = nodesInDepth.length.toString();
                 const newId = `Node_${eventSummary}_${depthStr}${orderStr}`;
-
                 const newNode = {
                     NodeID: newId, DevComment: "새 노드 설명", LinkedEventID: selectedEventId,
                     NodeType: "Normal", ChoiceIDs: [], depth: depth
@@ -267,7 +258,6 @@
                 const nodeSummary = getNodeSummary(nodeId);
                 const order = node.ChoiceIDs.length;
                 const newId = `Choice_${eventSummary}_${nodeSummary}_${order}`;
-
                 const newChoice = {
                     ChoiceID: newId, DevComment: "새 선택지 설명", LinkedNodeID: nodeId,
                     ActiveCondition: "None", OnSelectAction: "None", ActiveTooltipType: "None",
@@ -278,7 +268,6 @@
                 setSelectedElement({ type: 'choice', id: newId });
             };
 
-            // --- Drag & Drop Handlers ---
             const onChoiceDragStart = (e, choiceId) => {
                 setDraggingChoiceId(choiceId);
                 e.dataTransfer.setData("choiceId", choiceId);
@@ -296,7 +285,6 @@
                 e.preventDefault();
                 const choiceId = draggingChoiceId;
                 const choice = choices.find(c => c.ChoiceID === choiceId);
-                
                 if (choice && choice.LinkedNodeID !== targetNodeId) {
                     recordHistory();
                     setChoices(prev => prev.map(c => 
@@ -320,7 +308,6 @@
                 e.stopPropagation(); e.preventDefault();
                 const draggingChoiceIdLocal = draggingChoiceId;
                 const targetChoice = choices.find(c => c.ChoiceID === targetChoiceId);
-
                 if (targetChoice && draggingChoiceIdLocal !== targetChoiceId) {
                     recordHistory();
                     setChoices(prev => prev.map(c => 
@@ -332,9 +319,8 @@
                 setDraggingChoiceId(null); setDropTargetId(null);
             };
 
-            // --- Tooltip Previews ---
             const handleChoiceHover = (e, choice) => {
-                if (draggingChoiceId) return;
+                if (draggingChoiceId || editingChoiceCommentId) return;
                 let content = "";
                 if (choice.ActiveTooltipType === "ShowAction") {
                     content = `현재 액션: ${choice.OnSelectAction}`;
@@ -427,10 +413,8 @@
 
             return (
                 <div className="flex h-screen overflow-hidden select-none">
-                    {/* Toast Alert */}
                     {toast.show && <div className="toast"><Icon name="Save" size={18} /> {toast.message}</div>}
 
-                    {/* Tooltip */}
                     {tooltip.show && (
                         <div className="tooltip bg-black text-white text-[10px] px-2 py-1 rounded shadow-xl border border-white/20 font-mono whitespace-nowrap" style={{ left: tooltip.x, top: tooltip.y }}>
                             {tooltip.content}
@@ -440,7 +424,7 @@
                     <aside className="w-64 bg-white border-r flex flex-col shrink-0">
                         <div className="p-4 border-b">
                             <h1 className="font-bold text-blue-600 flex items-center gap-2 italic tracking-tighter">
-                                <Icon name="GitBranch" size={20} /> EVENT EDITOR V2.4
+                                <Icon name="GitBranch" size={20} /> EVENT EDITOR V2.6
                             </h1>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-4">
@@ -521,32 +505,101 @@
                                                     <span className="text-[9px] font-black bg-white px-1.5 py-0.5 rounded border border-gray-200 text-blue-500 uppercase">{node.NodeType}</span>
                                                 </div>
                                                 <div className="p-4">
-                                                    <p className="text-xs text-gray-600 italic mb-4 line-clamp-3 leading-relaxed">"{node.DevComment}"</p>
+                                                    {/* Node DevComment Direct Editing */}
+                                                    {editingNodeCommentId === node.NodeID ? (
+                                                        <textarea
+                                                            autoFocus
+                                                            className="w-full p-2 text-xs border rounded-lg mb-4 outline-none focus:ring-2 focus:ring-blue-500 min-h-[60px] font-serif italic text-gray-600 leading-relaxed bg-gray-50"
+                                                            value={tempComment}
+                                                            onChange={(e) => setTempComment(e.target.value)}
+                                                            onBlur={() => {
+                                                                if (tempComment !== node.DevComment) {
+                                                                    recordHistory();
+                                                                    setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempComment} : n));
+                                                                }
+                                                                setEditingNodeCommentId(null);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' && !e.shiftKey) { e.currentTarget.blur(); }
+                                                                else if (e.key === 'Escape') { setEditingNodeCommentId(null); }
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <p 
+                                                            onDoubleClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditingNodeCommentId(node.NodeID);
+                                                                setTempComment(node.DevComment);
+                                                            }}
+                                                            title="Double click to edit description"
+                                                            className="text-xs text-gray-600 italic mb-4 line-clamp-3 leading-relaxed cursor-text hover:bg-gray-50 rounded transition-colors p-1"
+                                                        >
+                                                            "{node.DevComment}"
+                                                        </p>
+                                                    )}
+                                                    
                                                     <div className="space-y-1.5">
                                                         {node.ChoiceIDs.map(cid => {
                                                             const c = choices.find(x => x.ChoiceID === cid);
                                                             if(!c) return null;
                                                             const isLink = c.OnSelectAction?.startsWith("ShowNextNode_");
                                                             const hasTooltipLink = c.ActiveTooltipType === "ShowChoiceAction";
+                                                            const isEditingChoice = editingChoiceCommentId === cid;
+
                                                             return (
                                                                 <div key={cid} 
                                                                     ref={el => elementRefs.current[cid] = el}
-                                                                    draggable="true"
+                                                                    draggable={!isEditingChoice}
                                                                     onDragStart={(e) => onChoiceDragStart(e, cid)}
                                                                     onDragOver={(e) => onChoiceDragOver(e, cid)}
                                                                     onDrop={(e) => onChoiceDrop(e, cid)}
                                                                     onMouseEnter={(e) => handleChoiceHover(e, c)}
                                                                     onMouseLeave={() => { setTooltip({ ...tooltip, show: false }); setDropTargetId(null); }}
                                                                     onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'choice', id: cid }); }}
-                                                                    className={`p-2 border rounded-xl text-[10px] flex justify-between items-center transition-all cursor-grab active:cursor-grabbing ${selectedElement?.id === cid ? 'bg-orange-50 border-orange-400 text-orange-800 font-bold' : 'bg-white border-gray-100 hover:bg-gray-50'} ${dropTargetId === cid ? 'choice-drop-target-active' : ''}`}>
-                                                                    <div className="flex items-center gap-1.5 overflow-hidden">
-                                                                        <Icon name="MousePointer" size={10} className={`${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'}`} />
-                                                                        <span className="truncate">{c.DevComment}</span>
+                                                                    className={`p-2 border rounded-xl text-[10px] flex justify-between items-center transition-all ${isEditingChoice ? 'ring-2 ring-blue-400 bg-white' : (selectedElement?.id === cid ? 'bg-orange-50 border-orange-400 text-orange-800 font-bold' : 'bg-white border-gray-100 hover:bg-gray-50')} cursor-grab active:cursor-grabbing ${dropTargetId === cid ? 'choice-drop-target-active' : ''}`}>
+                                                                    
+                                                                    <div className="flex items-center gap-1.5 overflow-hidden flex-1">
+                                                                        {!isEditingChoice && <Icon name="MousePointer" size={10} className={`${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0`} />}
+                                                                        
+                                                                        {isEditingChoice ? (
+                                                                            <input 
+                                                                                autoFocus
+                                                                                className="w-full bg-transparent outline-none text-[10px] py-0.5 border-b border-blue-200"
+                                                                                value={tempComment}
+                                                                                onChange={(e) => setTempComment(e.target.value)}
+                                                                                onBlur={() => {
+                                                                                    if (tempComment !== c.DevComment) {
+                                                                                        recordHistory();
+                                                                                        setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempComment} : item));
+                                                                                    }
+                                                                                    setEditingChoiceCommentId(null);
+                                                                                }}
+                                                                                onKeyDown={(e) => {
+                                                                                    if (e.key === 'Enter') e.currentTarget.blur();
+                                                                                    else if (e.key === 'Escape') setEditingChoiceCommentId(null);
+                                                                                }}
+                                                                            />
+                                                                        ) : (
+                                                                            <span 
+                                                                                className="truncate flex-1 cursor-text py-0.5 hover:text-blue-500 transition-colors"
+                                                                                onDoubleClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setEditingChoiceCommentId(cid);
+                                                                                    setTempComment(c.DevComment);
+                                                                                }}
+                                                                                title="Double click to edit label"
+                                                                            >
+                                                                                {c.DevComment}
+                                                                            </span>
+                                                                        )}
                                                                     </div>
-                                                                    <div className="flex gap-1">
-                                                                        {hasTooltipLink && <Icon name="Info" size={10} className="text-purple-400" />}
-                                                                        <Icon name="ArrowRight" size={10} className={isLink ? "text-blue-500" : "text-gray-200"} />
-                                                                    </div>
+
+                                                                    {!isEditingChoice && (
+                                                                        <div className="flex gap-1 ml-1 shrink-0">
+                                                                            {hasTooltipLink && <Icon name="Info" size={10} className="text-purple-400" />}
+                                                                            <Icon name="ArrowRight" size={10} className={isLink ? "text-blue-500" : "text-gray-200"} />
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })}
@@ -563,7 +616,7 @@
                         </div>
                     </main>
 
-                    {selectedElement && (
+                    {selectedElement && viewMode === 'editor' && (
                         <aside className="w-80 bg-white border-l p-5 shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-[10px] font-black uppercase text-gray-400 tracking-[0.3em]">{selectedElement.type} PROPERTIES</h2>
@@ -636,7 +689,6 @@
                         </aside>
                     )}
 
-                    {/* Modals */}
                     {showImportModal && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fadeIn">
                             <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
@@ -648,7 +700,7 @@
                     )}
                     {deleteModal.show && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6 animate-fadeIn">
-                            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden p-8 text-center"><div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><Icon name="AlertTriangle" size={32} /></div><h3 className="text-xl font-bold text-gray-800 mb-2">삭제하시겠습니까?</h3><p className="text-sm text-gray-500 mb-6 leading-relaxed">이 동작은 되돌릴 수 없습니다.</p><div className="flex gap-3"><button onClick={() => setDeleteModal({ show: false, type: null, id: null })} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200">취소</button><button onClick={executeDelete} className="flex-1 py-3 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 shadow-lg shadow-red-200">삭제 확정</button></div></div>
+                            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden p-8 text-center"><div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><Icon name="AlertTriangle" size={32} /></div><h3 className="text-xl font-bold text-gray-800 mb-2">삭제하시겠습니까?</h3><p className="text-sm text-gray-500 mb-6 leading-relaxed">이 동작은 되돌릴 수 없습니다.</p><div className="flex gap-3"><button onClick={() => setDeleteModal({ show: false, type: null, id: null })} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200">취소</button><button onClick={executeDelete} className="flex-1 py-3 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition-all">삭제 확정</button></div></div>
                         </div>
                     )}
                 </div>
