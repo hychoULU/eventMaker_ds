@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visual Event Editor - v2.9.2</title>
+    <title>DS Event Editor - v2.9.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Firebase SDKs -->
+    <!-- Firebase SDKs (Compat v9) -->
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
@@ -33,7 +33,7 @@
             pointer-events: none;
             z-index: 0;
         }
-        .node-card { z-index: 10; height: auto; }
+        .node-card { z-index: 10; height: auto; transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1.2), box-shadow 0.2s ease; }
         .drop-target-active {
             box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5);
             border-color: #3b82f6 !important;
@@ -43,13 +43,13 @@
             border-color: #3b82f6 !important;
             transform: scale(1.02);
         }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fadeIn { animation: fadeIn 0.15s ease-out; }
         .tooltip {
             position: fixed;
             z-index: 10000;
             pointer-events: none;
-            filter: drop-shadow(0 4px 10px rgba(0,0,0,0.2));
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.2));
         }
         .toast {
             position: fixed;
@@ -76,8 +76,6 @@
             paint-order: stroke;
             stroke: #ffffff;
             stroke-width: 3px;
-            cursor: pointer;
-            pointer-events: auto;
         }
         .ctx-menu {
             position: fixed;
@@ -99,10 +97,11 @@
             font-size: 12px;
             font-weight: 700;
             border-radius: 10px;
-            transition: all 0.15s;
+            transition: all 0.1s;
         }
         .ctx-item:hover { background: #f3f4f6; }
         .ctx-item.danger { color: #ef4444; }
+        .ctx-item.danger:hover { background: #fef2f2; }
         .ctx-divider { height: 1px; background: #f1f5f9; margin: 6px 0; }
         .weight-input-box {
             position: fixed;
@@ -135,13 +134,25 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-        // --- Firebase Globals ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'event-editor-app';
-        
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        // --- Defensive Global Check for Portability ---
+        let isCloudAvailable = false;
+        let appId = 'event-editor-app';
+        let initialAuthToken = null;
+
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                const config = JSON.parse(__firebase_config);
+                firebase.initializeApp(config);
+                isCloudAvailable = true;
+            }
+            if (typeof __app_id !== 'undefined' && __app_id) appId = __app_id;
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) initialAuthToken = __initial_auth_token;
+        } catch (e) {
+            console.warn("Cloud configuration missing. Running in Local-Only mode.");
+        }
+
+        const auth = isCloudAvailable ? firebase.auth() : null;
+        const db = isCloudAvailable ? firebase.firestore() : null;
 
         const Icon = ({ name, size = 16, className = "" }) => {
             const icons = {
@@ -156,7 +167,7 @@
                 Info: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8" /></>,
                 Save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
                 Cloud: <path d="M17.5 19c3.037 0 5.5-2.463 5.5-5.5 0-2.97-2.354-5.388-5.304-5.485C16.924 4.195 13.771 1 10 1 6.55 1 3.655 3.528 3.1 6.82 1.346 7.647 0 9.4 0 11.5 0 14.537 2.463 17 5.5 17h12M9 13l3 3 3-3M12 16V9" />,
-                Settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></>
+                Settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></>
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -166,7 +177,6 @@
         };
 
         const App = () => {
-            // --- Basic States ---
             const [events, setEvents] = useState([]);
             const [nodes, setNodes] = useState([]);
             const [choices, setChoices] = useState([]);
@@ -178,18 +188,15 @@
             const [importText, setImportText] = useState("");
             const [toast, setToast] = useState({ show: false, message: "" });
             
-            // --- Cloud & Control States ---
-            const [cloudStatus, setCloudStatus] = useState("idle"); 
+            const [cloudStatus, setCloudStatus] = useState(isCloudAvailable ? "idle" : "offline"); 
             const [user, setUser] = useState(null);
-            const isLoadedFromCloud = useRef(false);
+            const isInitialLoaded = useRef(false);
 
-            // --- Edit States ---
             const [editingNodeCommentId, setEditingNodeCommentId] = useState(null);
             const [editingChoiceCommentId, setEditingChoiceCommentId] = useState(null);
             const [editingWeightData, setEditingWeightData] = useState(null); 
             const [tempValue, setTempValue] = useState("");
 
-            // --- Interaction States ---
             const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, content: "" });
             const [draggingChoiceId, setDraggingChoiceId] = useState(null);
             const [dropTargetId, setDropTargetId] = useState(null);
@@ -200,7 +207,7 @@
             const [undoStack, setUndoStack] = useState([]);
             const [redoStack, setRedoStack] = useState([]);
 
-            // --- Computed Memos (MUST BE TOP LEVEL) ---
+            // --- Computed Values ---
             const nodesByDepth = useMemo(() => {
                 const group = {};
                 nodes.filter(n => n.LinkedEventID === selectedEventId).forEach(n => {
@@ -215,39 +222,40 @@
                 return depths.length > 0 ? Math.max(...depths) : -1;
             }, [nodes, selectedEventId]);
 
-            // --- 1. Authentication ---
+            // --- Cloud Logic ---
             useEffect(() => {
+                if (!isCloudAvailable) {
+                    isInitialLoaded.current = true;
+                    return;
+                }
                 const initAuth = async () => {
                     try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await auth.signInWithCustomToken(__initial_auth_token);
-                        } else { await auth.signInAnonymously(); }
-                    } catch (e) { console.error("Auth failed", e); setCloudStatus("error"); }
+                        if (initialAuthToken) await auth.signInWithCustomToken(initialAuthToken);
+                        else await auth.signInAnonymously();
+                    } catch (e) { console.error("Cloud Auth fail", e); setCloudStatus("error"); }
                 };
                 initAuth();
                 const unsubscribe = auth.onAuthStateChanged(setUser);
                 return () => unsubscribe();
             }, []);
 
-            // --- 2. Initial Fetch from Firestore ---
             useEffect(() => {
-                if (!user) return;
+                if (!user || !isCloudAvailable) return;
                 const projectDoc = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main');
                 projectDoc.get().then(doc => {
                     if (doc.exists) {
                         const data = doc.data();
                         setEvents(data.events || []); setNodes(data.nodes || []); setChoices(data.choices || []);
                         if (data.events?.length > 0) setSelectedEventId(data.events[0].EventID);
-                        showToast("데이터를 성공적으로 불러왔습니다.");
+                        showToast("클라우드 데이터를 불러왔습니다.");
                     }
-                    isLoadedFromCloud.current = true;
+                    isInitialLoaded.current = true;
                     setCloudStatus("saved");
-                }).catch(e => { console.error("Load failed", e); setCloudStatus("error"); isLoadedFromCloud.current = true; });
+                }).catch(e => { console.error("Cloud Load Error", e); setCloudStatus("error"); isInitialLoaded.current = true; });
             }, [user]);
 
-            // --- 3. Auto-Save to Firestore ---
             useEffect(() => {
-                if (!user || !isLoadedFromCloud.current || events.length === 0) return;
+                if (!user || !isCloudAvailable || !isInitialLoaded.current || events.length === 0) return;
                 const timer = setTimeout(async () => {
                     setCloudStatus("syncing");
                     try {
@@ -255,12 +263,11 @@
                             events, nodes, choices, lastUpdated: new Date()
                         });
                         setCloudStatus("saved");
-                    } catch (e) { console.error("Auto-save failed", e); setCloudStatus("error"); }
+                    } catch (e) { setCloudStatus("error"); }
                 }, 3000);
                 return () => clearTimeout(timer);
             }, [events, nodes, choices, user]);
 
-            // --- History ---
             const recordHistory = useCallback(() => {
                 const snapshot = JSON.stringify({ events, nodes, choices });
                 setUndoStack(prev => [...prev.slice(-49), snapshot]);
@@ -269,22 +276,20 @@
 
             const performUndo = useCallback(() => {
                 if (undoStack.length === 0) return;
-                const currentSnapshot = JSON.stringify({ events, nodes, choices });
                 const prevSnapshot = JSON.parse(undoStack[undoStack.length - 1]);
-                setRedoStack(prev => [...prev, currentSnapshot]);
+                setRedoStack(prev => [...prev, JSON.stringify({ events, nodes, choices })]);
                 setUndoStack(prev => prev.slice(0, -1));
                 setEvents(prevSnapshot.events); setNodes(prevSnapshot.nodes); setChoices(prevSnapshot.choices);
-                showToast("Undo Successful");
+                showToast("Undo Action");
             }, [undoStack, events, nodes, choices]);
 
             const performRedo = useCallback(() => {
                 if (redoStack.length === 0) return;
-                const currentSnapshot = JSON.stringify({ events, nodes, choices });
                 const nextSnapshot = JSON.parse(redoStack[redoStack.length - 1]);
-                setUndoStack(prev => [...prev, currentSnapshot]);
+                setUndoStack(prev => [...prev, JSON.stringify({ events, nodes, choices })]);
                 setRedoStack(prev => prev.slice(0, -1));
                 setEvents(nextSnapshot.events); setNodes(nextSnapshot.nodes); setChoices(nextSnapshot.choices);
-                showToast("Redo Successful");
+                showToast("Redo Action");
             }, [redoStack, events, nodes, choices]);
 
             const showToast = (msg) => {
@@ -310,7 +315,6 @@
                 document.body.appendChild(link); link.click(); document.body.removeChild(link);
             }, [events, nodes, choices]);
 
-            // --- CRUD ---
             const getEventSummary = (eventId) => {
                 const parts = eventId.split('_'); 
                 const typeChar = parts[1] ? parts[1].charAt(0) : "F";
@@ -355,7 +359,6 @@
                 setSelectedElement({ type: 'choice', id: newId });
             };
 
-            // --- D&D ---
             const onChoiceDragStart = (e, choiceId) => { setDraggingChoiceId(choiceId); e.dataTransfer.setData("choiceId", choiceId); };
             const onNodeDragOver = (e, nodeId) => {
                 e.preventDefault();
@@ -371,10 +374,9 @@
                 const choiceId = draggingChoiceId;
                 const choice = choices.find(c => c.ChoiceID === choiceId);
                 if (!choice) return;
-                const srcNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
+                const sourceNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
                 const targetNode = nodes.find(n => n.NodeID === targetNodeId);
-                
-                if (targetNode.depth <= srcNode.depth) { showToast("⚠️ Depth Error: 더 깊은 단계로만 연결 가능합니다."); }
+                if (targetNode.depth <= sourceNode.depth) showToast("⚠️ Depth Error: 더 깊은 단계로만 연결 가능합니다.");
                 else {
                     recordHistory();
                     const newAction = `ShowNextNode_${targetNodeId}_100`;
@@ -398,17 +400,13 @@
                 let source, target;
                 if (nodeA.depth < nodeB.depth) { source = draggedChoice; target = targetChoice; }
                 else if (nodeB.depth < nodeA.depth) { source = targetChoice; target = draggedChoice; }
-                else { showToast("같은 단계의 선택지는 연결할 수 없습니다."); setDraggingChoiceId(null); setDropTargetId(null); return; }
+                else { showToast("Depth constraint conflict."); setDraggingChoiceId(null); setDropTargetId(null); return; }
 
                 recordHistory();
                 setChoices(prev => prev.map(c => {
                     if (c.ChoiceID === source.ChoiceID) {
                         let newType = c.ActiveTooltipType === "None" ? "ShowChoiceAction" : c.ActiveTooltipType;
-                        let newVal = c.ActiveTooltipValue;
-                        if (newType === "Probability") {
-                            const valList = newVal ? newVal.split(',') : [];
-                            if (!valList.includes(target.ChoiceID)) newVal = [...valList, target.ChoiceID].join(',');
-                        } else { newVal = target.ChoiceID; }
+                        let newVal = (newType === "Probability") ? (c.ActiveTooltipValue ? `${c.ActiveTooltipValue},${target.ChoiceID}` : target.ChoiceID) : target.ChoiceID;
                         return { ...c, ActiveTooltipType: newType, ActiveTooltipValue: newVal };
                     }
                     return c;
@@ -419,35 +417,28 @@
             const handleChoiceHover = useCallback((e, choice) => {
                 if (draggingChoiceId || editingChoiceCommentId) return;
                 let content = "";
-                if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "액션 없음";
+                if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "No actions.";
                 else if (choice.ActiveTooltipType === "ShowChoiceAction" && choice.ActiveTooltipValue) {
                     const t = choices.find(c => c.ChoiceID === choice.ActiveTooltipValue);
-                    content = t?.OnSelectAction || `(참조: ${choice.ActiveTooltipValue})`;
+                    content = t?.OnSelectAction || `(Ref: ${choice.ActiveTooltipValue})`;
                 } else if (choice.ActiveTooltipType === "Probability" && choice.ActiveTooltipValue) {
                     const tIds = choice.ActiveTooltipValue.split(',');
                     const actions = (choice.OnSelectAction || "").split('\n');
                     let totalW = 0; const wMap = {};
-                    actions.forEach(a => {
-                        const m = a.match(/ShowNextNode_([Nodea-zA-Z0-9]+)_(\d+)/);
-                        if (m) { totalW += parseInt(m[2]); wMap[m[1]] = parseInt(m[2]); }
-                    });
+                    actions.forEach(a => { const m = a.match(/ShowNextNode_([Nodea-zA-Z0-9]+)_(\d+)/); if (m) { totalW += parseInt(m[2]); wMap[m[1]] = parseInt(m[2]); } });
                     const res = tIds.map(tid => {
                         const tc = choices.find(c => c.ChoiceID === tid);
                         if (!tc) return null;
                         const weight = wMap[tc.LinkedNodeID] || 0;
                         const prob = totalW > 0 ? Math.round((weight / totalW) * 100) : 0;
-                        return `(${prob}%) ${tc.OnSelectAction || '없음'}`;
+                        return `(${prob}%) ${tc.OnSelectAction || 'None'}`;
                     }).filter(r => r);
                     content = res.join('\n');
                 }
-                if (content) setTooltip({ show: true, x: e.clientX + 10, y: e.clientY + 10, content });
+                if (content) setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
             }, [draggingChoiceId, editingChoiceCommentId, choices]);
 
-            const updateTooltipType = (choiceId, type) => {
-                recordHistory();
-                setChoices(choices.map(c => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c));
-                setCtxMenu({ show: false });
-            };
+            const updateTooltipType = (choiceId, type) => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c)); setCtxMenu({ show: false }); };
 
             const saveWeightEdit = () => {
                 if (!editingWeightData) return;
@@ -467,14 +458,11 @@
 
             const executeDelete = () => {
                 const { type, id } = deleteModal.show ? deleteModal : { type: ctxMenu.type, id: ctxMenu.id };
-                if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) {
-                    showToast("시작 노드는 삭제할 수 없습니다."); setDeleteModal({ show: false }); setCtxMenu({ show: false }); return;
-                }
+                if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) { showToast("Start node protected."); return; }
                 recordHistory();
                 if (type === 'event') {
                     const rem = events.filter(e => e.EventID !== id);
-                    setEvents(rem); setNodes(nodes.filter(n => n.LinkedEventID !== id));
-                    setChoices(choices.filter(c => !nodes.find(n => n.NodeID === c.LinkedNodeID && n.LinkedEventID === id)));
+                    setEvents(rem); setNodes(nodes.filter(n => n.LinkedEventID !== id)); setChoices(choices.filter(c => !nodes.find(n => n.NodeID === c.LinkedNodeID && n.LinkedEventID === id)));
                     if (selectedEventId === id) setSelectedEventId(rem[0]?.EventID || "");
                 } else if (type === 'node') {
                     setNodes(nodes.filter(n => n.NodeID !== id)); setChoices(choices.filter(c => c.LinkedNodeID !== id));
@@ -486,8 +474,9 @@
             };
 
             const handleContextMenu = (e, type, id) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ show: true, x: e.clientX, y: e.clientY, type, id }); };
+            useEffect(() => { const close = () => { if(ctxMenu.show) setCtxMenu({ show: false }); }; window.addEventListener('click', close); return () => window.removeEventListener('click', close); }, [ctxMenu.show]);
 
-            // --- Rendering ---
+            // --- Lines ---
             const [lines, setLines] = useState([]);
             const updateLines = useCallback(() => {
                 const res = [];
@@ -518,10 +507,10 @@
             const handleImport = () => {
                 try {
                     const data = JSON.parse(importText);
-                    const eventSheet = data["Event시트"] || []; const nodeSheet = data["Node시트"] || []; const choiceSheet = data["Choice시트"] || [];
                     recordHistory();
-                    const parsedNodes = nodeSheet.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
-                    const parsedChoices = choiceSheet.map(c => {
+                    const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
+                    const parsedNodes = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+                    const parsedChoices = cS.map(c => {
                         const uiAction = (c.OnSelectAction || "").replace(/,/g, '\n');
                         let tType = "None", tVal = "";
                         if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tType = "ShowChoiceAction"; tVal = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
@@ -529,9 +518,9 @@
                         else if (c.ActiveTooltipType === "ShowAction") { tType = "ShowAction"; }
                         return { ...c, OnSelectAction: uiAction, ActiveTooltipType: tType, ActiveTooltipValue: tVal };
                     });
-                    setEvents(eventSheet); setNodes(parsedNodes); setChoices(parsedChoices);
-                    if (eventSheet.length > 0) setSelectedEventId(eventSheet[0].EventID);
-                    setShowImportModal(false); setImportText(""); showToast("Import Success");
+                    setEvents(eS); setNodes(parsedNodes); setChoices(parsedChoices);
+                    if (eS.length > 0) setSelectedEventId(eS[0].EventID);
+                    setShowImportModal(false); setImportText(""); showToast("Imported Successfully");
                 } catch (e) { alert("Import Failed"); }
             };
 
@@ -540,13 +529,13 @@
                     {toast.show && <div className="toast"><Icon name="Info" size={18} /> {toast.message}</div>}
                     {tooltip.show && <div className="tooltip bg-black/90 text-white text-[11px] px-3 py-2 rounded-xl shadow-2xl font-mono whitespace-pre-wrap max-w-xs animate-fadeIn border border-white/10" style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}>{tooltip.content}</div>}
                     
-                    <div className={`cloud-indicator ${cloudStatus === 'saved' ? 'text-green-600 bg-green-50 border border-green-200' : (cloudStatus === 'syncing' ? 'text-blue-600 bg-blue-50 border border-blue-200' : 'text-red-600 bg-red-50 border border-red-200')}`}>
-                        <Icon name="Cloud" size={12} className={cloudStatus === 'syncing' ? 'animate-bounce' : ''} />
-                        {cloudStatus === 'syncing' ? 'Syncing...' : (cloudStatus === 'saved' ? 'Cloud Save On' : 'Sync Error')}
+                    <div className={`cloud-indicator ${cloudStatus === 'saved' ? 'text-green-600 bg-green-50' : (cloudStatus === 'syncing' ? 'text-blue-600 bg-blue-50' : (cloudStatus === 'offline' ? 'text-gray-400 bg-gray-100' : 'text-red-600 bg-red-50'))}`}>
+                        <Icon name="Cloud" size={12} />
+                        {cloudStatus === 'syncing' ? 'Saving...' : (cloudStatus === 'saved' ? 'Cloud Sync On' : (cloudStatus === 'offline' ? 'Offline Mode' : 'Error'))}
                     </div>
 
                     {ctxMenu.show && (
-                        <div className="ctx-menu animate-fadeIn shadow-2xl" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+                        <div className="ctx-menu animate-fadeIn shadow-2xl" style={{ left: ctxMenu.x, top: ctxMenu.y }} onClick={(e) => e.stopPropagation()}>
                             {!(ctxMenu.type === 'node' && nodes.find(n => n.NodeID === ctxMenu.id)?.depth === 0) && (
                                 <button onClick={executeDelete} className="ctx-item danger transition-colors"><Icon name="Trash2" size={14} /> Delete</button>
                             )}
@@ -570,7 +559,7 @@
                     )}
 
                     <aside className="w-64 bg-white border-r flex flex-col shrink-0">
-                        <div className="p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm">Visual Editor v2.9.2</div>
+                        <div className="p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm">Visual Editor v2.9.3</div>
                         <div className="flex-1 overflow-y-auto p-3 space-y-5">
                             {['Fixed', 'Random'].map(type => (
                                 <div key={type}>
@@ -578,32 +567,32 @@
                                     {events.filter(e => e.EventType === type).map(ev => (
                                         <div key={ev.EventID} className="group relative mb-1.5">
                                             <button onClick={() => { setSelectedEventId(ev.EventID); setSelectedElement({ type: 'event', id: ev.EventID }); }}
-                                                className={`w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-400' : 'hover:bg-gray-100'}`}>
+                                                className={`w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-gray-100'}`}>
                                                 <div className="text-xs font-bold truncate">{ev.EventID}</div>
-                                                <div className={`text-[10px] truncate ${selectedEventId === ev.EventID ? 'text-blue-100 opacity-80' : 'text-gray-400'}`}>{ev.DevComment}</div>
+                                                <div className={`text-[10px] truncate opacity-60`}>{ev.DevComment}</div>
                                             </button>
                                             <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'event', id: ev.EventID }); }}
-                                                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 transition-all ${selectedEventId === ev.EventID ? 'text-white hover:text-red-200' : 'text-gray-300 hover:text-red-500'}`}><Icon name="Trash2" size={14} /></button>
+                                                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 transition-all ${selectedEventId === ev.EventID ? 'text-white' : 'text-gray-300 hover:text-red-500'}`}><Icon name="Trash2" size={14} /></button>
                                         </div>
                                     ))}
-                                    <button onClick={() => createEvent(type)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-[10px] text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-all font-bold uppercase tracking-widest mt-2">+ {type}</button>
+                                    <button onClick={() => createEvent(type)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-[10px] text-gray-400 hover:border-blue-300 hover:text-blue-500 font-bold uppercase mt-2">+ {type}</button>
                                 </div>
                             ))}
                         </div>
                         <div className="p-5 bg-gray-50 border-t space-y-2.5">
                             <div className="flex gap-2">
-                                <button onClick={performUndo} disabled={undoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-all shadow-sm uppercase">Undo</button>
-                                <button onClick={performRedo} disabled={redoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-all shadow-sm uppercase">Redo</button>
+                                <button onClick={performUndo} disabled={undoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 uppercase shadow-sm">Undo</button>
+                                <button onClick={performRedo} disabled={redoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 uppercase shadow-sm">Redo</button>
                             </div>
-                            <button onClick={() => setShowImportModal(true)} className="w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-gray-100 uppercase tracking-widest shadow-sm transition-all"><Icon name="Upload" size={14} /> Import</button>
-                            <button onClick={downloadJSON} className="w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black uppercase tracking-widest shadow-lg transition-all"><Icon name="Download" size={14} /> Export</button>
+                            <button onClick={() => setShowImportModal(true)} className="w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-gray-100 uppercase tracking-widest"><Icon name="Upload" size={14} /> Import</button>
+                            <button onClick={downloadJSON} className="w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black transition-colors uppercase tracking-widest shadow-lg"><Icon name="Download" size={14} /> Export</button>
                         </div>
                     </aside>
 
-                    <main className="flex-1 flex flex-col min-w-0 bg-gray-50 relative">
+                    <main className="flex-1 flex flex-col min-w-0 bg-gray-50 relative overflow-hidden">
                         <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0 z-20 shadow-sm">
-                            <div className="flex items-center gap-3 font-black text-gray-700 tracking-tight">{selectedEventId || "Select an Event"}{selectedEventId && <span className="text-[10px] bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-mono uppercase tracking-tighter ml-2">{events.find(e=>e.EventID === selectedEventId)?.EventType}</span>}</div>
-                            <button onClick={() => createNode(maxDepth + 1)} disabled={!selectedEventId} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 hover:bg-blue-700 disabled:opacity-30 shadow-xl shadow-blue-100 transition-all font-bold uppercase tracking-widest"><Icon name="Plus" size={14} /> NEW DEPTH COLUMN</button>
+                            <div className="flex items-center gap-3 font-black text-gray-700">{selectedEventId || "SELECT EVENT"}{selectedEventId && <span className="text-[10px] bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-mono uppercase ml-2">{events.find(e=>e.EventID === selectedEventId)?.EventType}</span>}</div>
+                            <button onClick={() => createNode(maxDepth + 1)} disabled={!selectedEventId} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 hover:bg-blue-700 disabled:opacity-30 shadow-xl transition-all shadow-blue-100"><Icon name="Plus" size={14} /> NEW DEPTH COLUMN</button>
                         </header>
 
                         <div className="flex-1 overflow-auto pattern-grid relative" onScroll={() => updateLines()}>
@@ -619,14 +608,14 @@
 
                                 {Array.from({ length: maxDepth + 1 }).map((_, dIdx) => (
                                     <div key={dIdx} className="flex flex-col gap-10 w-72 shrink-0">
-                                        <div className="text-center px-4"><div className="text-[11px] font-black text-gray-400 uppercase tracking-[0.3em] mb-4 font-bold">Depth {dIdx}</div>{dIdx > 0 && <button onClick={() => createNode(dIdx)} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] text-gray-400 hover:bg-white hover:border-blue-400 hover:text-blue-500 transition-all font-black uppercase tracking-widest shadow-sm">ADD NODE</button>}</div>
+                                        <div className="text-center px-4"><div className="text-[11px] font-black text-gray-400 uppercase tracking-[0.3em] mb-4">Depth {dIdx}</div>{dIdx > 0 && <button onClick={() => createNode(dIdx)} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] text-gray-400 hover:bg-white hover:border-blue-400 hover:text-blue-500 transition-all font-black uppercase tracking-widest">ADD NODE</button>}</div>
                                         {nodesByDepth[dIdx]?.map(node => (
                                             <div key={node.NodeID} ref={el => elementRefs.current[node.NodeID] = el}
                                                 onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'node', id: node.NodeID }); }}
                                                 onContextMenu={(e) => handleContextMenu(e, 'node', node.NodeID)}
                                                 onDragOver={(e) => onNodeDragOver(e, node.NodeID)} onDrop={(e) => onNodeDrop(e, node.NodeID)}
                                                 className={`node-card bg-white rounded-3xl shadow-sm border-2 overflow-hidden transition-all relative ${selectedElement?.id === node.NodeID ? 'border-blue-500 ring-4 ring-blue-50 scale-105 shadow-2xl' : 'border-gray-100 hover:border-gray-200'} ${dropTargetId === node.NodeID ? 'drop-target-active' : ''}`}>
-                                                <div className="bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight"><span className="text-[10px] font-mono font-black text-gray-400">{node.NodeID}</span><span className="text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter">{node.NodeType}</span></div>
+                                                <div className="bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center"><span className="text-[10px] font-mono font-black text-gray-400">{node.NodeID}</span><span className="text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter">{node.NodeType}</span></div>
                                                 <div className="p-5">
                                                     {editingNodeCommentId === node.NodeID ? (
                                                         <textarea autoFocus className="w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif italic text-gray-600 bg-white" value={tempComment} onChange={(e) => setTempComment(e.target.value)} onBlur={() => { if (tempComment !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempComment} : n)); } setEditingNodeCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) e.currentTarget.blur(); else if (e.key === 'Escape') setEditingNodeCommentId(null); }} />
@@ -654,7 +643,7 @@
                                                                 </div>
                                                             );
                                                         })}
-                                                        {node.ChoiceIDs.length < 3 && <button onClick={(e) => { e.stopPropagation(); createChoice(node.NodeID); }} className="w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] font-black text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all font-bold uppercase tracking-widest mt-1 shadow-sm">Add Choice</button>}
+                                                        {node.ChoiceIDs.length < 3 && <button onClick={(e) => { e.stopPropagation(); createChoice(node.NodeID); }} className="w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] font-black text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1">Add Choice</button>}
                                                     </div>
                                                 </div>
                                             </div>
@@ -708,10 +697,10 @@
                                         <div className="space-y-5 animate-fadeIn">
                                             <PropField label="Choice ID" value={choice.ChoiceID} readOnly />
                                             <PropField label="Dev Comment" value={choice.DevComment} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, DevComment: v} : c)); }} type="textarea" />
-                                            <PropField label="On Select Actions" value={choice.OnSelectAction} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, OnSelectAction: v} : c)); }} type="textarea" placeholder="ShowNextNode_NodeF010_100" />
+                                            <PropField label="On Select Actions" value={choice.OnSelectAction} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, OnSelectAction: v} : c)); }} type="textarea" />
                                             <PropField label="Active Condition" value={choice.ActiveCondition} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveCondition: v} : c)); }} />
                                             <PropField label="Active Tooltip Type" value={choice.ActiveTooltipType} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveTooltipType: v} : c)); }} type="select" options={["None", "ShowAction", "ShowChoiceAction", "Probability"]} />
-                                            <PropField label="Tooltip Value (ChoiceID)" value={choice.ActiveTooltipValue || ""} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveTooltipValue: v} : c)); }} />
+                                            <PropField label="Tooltip Value" value={choice.ActiveTooltipValue || ""} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveTooltipValue: v} : c)); }} />
                                         </div>
                                     )
                                 })()}
@@ -721,16 +710,15 @@
 
                     {showImportModal && (
                         <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[20000] flex items-center justify-center p-8 animate-fadeIn">
-                            <div className="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-                                <div className="p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest shadow-sm">Import JSON Data<button onClick={() => setShowImportModal(false)} className="hover:rotate-90 transition-transform"><Icon name="Plus" size={32} className="rotate-45 text-gray-400" /></button></div>
-                                <div className="p-8 space-y-4"><textarea className="w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 outline-none shadow-inner transition-all" value={importText} onChange={(e) => setImportText(e.target.value)} /></div>
-                                <div className="p-8 bg-gray-50 border-t flex gap-4 justify-end"><button onClick={() => setShowImportModal(false)} className="px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 transition-all uppercase tracking-widest font-bold">Cancel</button><button onClick={handleImport} className="px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold">Load</button></div>
+                            <div className="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
+                                <div className="p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest">Import JSON Data<button onClick={() => setShowImportModal(false)} className="hover:rotate-90 transition-transform"><Icon name="Plus" size={32} className="rotate-45 text-gray-400" /></button></div>
+                                <div className="p-8"><textarea className="w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 outline-none shadow-inner transition-all" value={importText} onChange={(e) => setImportText(e.target.value)} /></div>
+                                <div className="p-8 bg-gray-50 border-t flex gap-4 justify-end"><button onClick={() => setShowImportModal(false)} className="px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 uppercase tracking-widest">Cancel</button><button onClick={handleImport} className="px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold">Load</button></div>
                             </div>
                         </div>
                     )}
-
                     {deleteModal.show && (
-                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[11000] flex items-center justify-center p-8 animate-fadeIn font-bold">
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[11000] flex items-center justify-center p-8 animate-fadeIn">
                             <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 text-center animate-in zoom-in-95 duration-200"><div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="AlertTriangle" size={40} /></div><h3 className="text-2xl font-black mb-4 tracking-tighter uppercase text-gray-800 tracking-tighter">Delete Item?</h3><div className="flex gap-4 mt-10"><button onClick={() => setDeleteModal({ show: false })} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black hover:bg-gray-200 transition-all uppercase tracking-widest">Cancel</button><button onClick={executeDelete} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-2xl shadow-red-200 hover:bg-red-700 transition-all uppercase tracking-widest">Confirm</button></div></div>
                         </div>
                     )}
