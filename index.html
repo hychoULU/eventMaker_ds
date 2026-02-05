@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DS Event Editor - v2.9.3</title>
+    <title>Visual Event Editor - v2.9.9</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -49,7 +49,7 @@
             position: fixed;
             z-index: 10000;
             pointer-events: none;
-            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.2));
+            filter: drop-shadow(0 4px 10px rgba(0,0,0,0.2));
         }
         .toast {
             position: fixed;
@@ -76,6 +76,8 @@
             paint-order: stroke;
             stroke: #ffffff;
             stroke-width: 3px;
+            cursor: pointer;
+            pointer-events: auto;
         }
         .ctx-menu {
             position: fixed;
@@ -101,7 +103,6 @@
         }
         .ctx-item:hover { background: #f3f4f6; }
         .ctx-item.danger { color: #ef4444; }
-        .ctx-item.danger:hover { background: #fef2f2; }
         .ctx-divider { height: 1px; background: #f1f5f9; margin: 6px 0; }
         .weight-input-box {
             position: fixed;
@@ -134,7 +135,16 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-        // --- Defensive Global Check for Portability ---
+        // --- 전역 헬퍼 함수 (참조 오류 방지) ---
+        function getEventSummary(eventId) {
+            if (!eventId) return "E";
+            const parts = eventId.split('_'); 
+            const typeChar = parts[1] ? parts[1].charAt(0) : "F";
+            const numMatch = parts[1]?.match(/\d+/);
+            return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
+        }
+
+        // --- Firebase 초기화 및 로컬 모드 대응 ---
         let isCloudAvailable = false;
         let appId = 'event-editor-app';
         let initialAuthToken = null;
@@ -147,9 +157,7 @@
             }
             if (typeof __app_id !== 'undefined' && __app_id) appId = __app_id;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) initialAuthToken = __initial_auth_token;
-        } catch (e) {
-            console.warn("Cloud configuration missing. Running in Local-Only mode.");
-        }
+        } catch (e) { console.warn("Local-Only Mode."); }
 
         const auth = isCloudAvailable ? firebase.auth() : null;
         const db = isCloudAvailable ? firebase.firestore() : null;
@@ -207,7 +215,7 @@
             const [undoStack, setUndoStack] = useState([]);
             const [redoStack, setRedoStack] = useState([]);
 
-            // --- Computed Values ---
+            // --- Computed Memos ---
             const nodesByDepth = useMemo(() => {
                 const group = {};
                 nodes.filter(n => n.LinkedEventID === selectedEventId).forEach(n => {
@@ -222,36 +230,90 @@
                 return depths.length > 0 ? Math.max(...depths) : -1;
             }, [nodes, selectedEventId]);
 
-            // --- Cloud Logic ---
+            // --- Function Definitions (Must be before useEffect) ---
+            const recordHistory = useCallback(() => {
+                setUndoStack(prev => [...prev.slice(-49), JSON.stringify({ events, nodes, choices })]);
+                setRedoStack([]);
+            }, [events, nodes, choices]);
+
+            const performUndo = useCallback(() => {
+                if (undoStack.length === 0) return;
+                const prev = JSON.parse(undoStack[undoStack.length - 1]);
+                setRedoStack(p => [...p, JSON.stringify({ events, nodes, choices })]);
+                setUndoStack(p => p.slice(0, -1));
+                setEvents(prev.events); setNodes(prev.nodes); setChoices(prev.choices);
+            }, [undoStack, events, nodes, choices]);
+
+            const performRedo = useCallback(() => {
+                if (redoStack.length === 0) return;
+                const next = JSON.parse(redoStack[redoStack.length - 1]);
+                setUndoStack(p => [...p, JSON.stringify({ events, nodes, choices })]);
+                setRedoStack(p => p.slice(0, -1));
+                setEvents(next.events); setNodes(next.nodes); setChoices(next.choices);
+            }, [redoStack, events, nodes, choices]);
+
+            const downloadJSON = useCallback(() => {
+                const data = { 
+                    "Event시트": events, 
+                    "Node시트": nodes.map(({ depth, ...rest }) => rest), 
+                    "Choice시트": choices.map(c => {
+                        const actionStr = (c.OnSelectAction || "").replace(/\n/g, ',');
+                        let tType = c.ActiveTooltipType;
+                        if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
+                            tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
+                        }
+                        return { 
+                            ChoiceID: c.ChoiceID, DevComment: c.DevComment, LinkedNodeID: c.LinkedNodeID,
+                            ActiveCondition: c.ActiveCondition, OnSelectAction: actionStr, ActiveTooltipType: tType
+                        };
+                    }) 
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url; link.download = `DS_Events_${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            }, [events, nodes, choices]);
+
+            const showToast = (msg) => { setToast({ show: true, message: msg }); setTimeout(() => setToast({ show: false, message: "" }), 2500); };
+
+            // --- Key Event Listeners ---
             useEffect(() => {
-                if (!isCloudAvailable) {
-                    isInitialLoaded.current = true;
-                    return;
-                }
+                const handleKeyDown = (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        if (e.key.toLowerCase() === 'z') { if (e.shiftKey) performRedo(); else performUndo(); e.preventDefault(); }
+                        else if (e.key.toLowerCase() === 's') { downloadJSON(); e.preventDefault(); }
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [performUndo, performRedo, downloadJSON]);
+
+            // --- Cloud Sync ---
+            useEffect(() => {
+                if (!isCloudAvailable) { isInitialLoaded.current = true; return; }
                 const initAuth = async () => {
                     try {
                         if (initialAuthToken) await auth.signInWithCustomToken(initialAuthToken);
                         else await auth.signInAnonymously();
-                    } catch (e) { console.error("Cloud Auth fail", e); setCloudStatus("error"); }
+                    } catch (e) { setCloudStatus("error"); }
                 };
                 initAuth();
-                const unsubscribe = auth.onAuthStateChanged(setUser);
-                return () => unsubscribe();
+                const unsub = auth.onAuthStateChanged(setUser);
+                return () => unsub();
             }, []);
 
             useEffect(() => {
                 if (!user || !isCloudAvailable) return;
-                const projectDoc = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main');
-                projectDoc.get().then(doc => {
+                db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main').get().then(doc => {
                     if (doc.exists) {
                         const data = doc.data();
                         setEvents(data.events || []); setNodes(data.nodes || []); setChoices(data.choices || []);
                         if (data.events?.length > 0) setSelectedEventId(data.events[0].EventID);
                         showToast("클라우드 데이터를 불러왔습니다.");
                     }
-                    isInitialLoaded.current = true;
-                    setCloudStatus("saved");
-                }).catch(e => { console.error("Cloud Load Error", e); setCloudStatus("error"); isInitialLoaded.current = true; });
+                    isInitialLoaded.current = true; setCloudStatus("saved");
+                }).catch(() => { setCloudStatus("error"); isInitialLoaded.current = true; });
             }, [user]);
 
             useEffect(() => {
@@ -268,122 +330,45 @@
                 return () => clearTimeout(timer);
             }, [events, nodes, choices, user]);
 
-            const recordHistory = useCallback(() => {
-                const snapshot = JSON.stringify({ events, nodes, choices });
-                setUndoStack(prev => [...prev.slice(-49), snapshot]);
-                setRedoStack([]);
-            }, [events, nodes, choices]);
-
-            const performUndo = useCallback(() => {
-                if (undoStack.length === 0) return;
-                const prevSnapshot = JSON.parse(undoStack[undoStack.length - 1]);
-                setRedoStack(prev => [...prev, JSON.stringify({ events, nodes, choices })]);
-                setUndoStack(prev => prev.slice(0, -1));
-                setEvents(prevSnapshot.events); setNodes(prevSnapshot.nodes); setChoices(prevSnapshot.choices);
-                showToast("Undo Action");
-            }, [undoStack, events, nodes, choices]);
-
-            const performRedo = useCallback(() => {
-                if (redoStack.length === 0) return;
-                const nextSnapshot = JSON.parse(redoStack[redoStack.length - 1]);
-                setUndoStack(prev => [...prev, JSON.stringify({ events, nodes, choices })]);
-                setRedoStack(prev => prev.slice(0, -1));
-                setEvents(nextSnapshot.events); setNodes(nextSnapshot.nodes); setChoices(nextSnapshot.choices);
-                showToast("Redo Action");
-            }, [redoStack, events, nodes, choices]);
-
-            const showToast = (msg) => {
-                setToast({ show: true, message: msg });
-                setTimeout(() => setToast({ show: false, message: "" }), 2500);
-            };
-
-            const downloadJSON = useCallback(() => {
-                const dateStr = new Date().toISOString().slice(0,10);
-                const data = { 
-                    "Event시트": events, 
-                    "Node시트": nodes.map(({ depth, ...rest }) => rest), 
-                    "Choice시트": choices.map(c => ({
-                        ChoiceID: c.ChoiceID, DevComment: c.DevComment, LinkedNodeID: c.LinkedNodeID,
-                        ActiveCondition: c.ActiveCondition, OnSelectAction: (c.OnSelectAction || "").replace(/\n/g, ','),
-                        ActiveTooltipType: c.ActiveTooltipType === 'None' ? 'None' : (c.ActiveTooltipType === 'ShowAction' ? 'ShowAction' : `${c.ActiveTooltipType}_${(c.ActiveTooltipValue || "").replace(/,/g, '_')}`)
-                    }))
-                };
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url; link.download = `DS_Events_${dateStr}.json`;
-                document.body.appendChild(link); link.click(); document.body.removeChild(link);
-            }, [events, nodes, choices]);
-
-            const getEventSummary = (eventId) => {
-                const parts = eventId.split('_'); 
-                const typeChar = parts[1] ? parts[1].charAt(0) : "F";
-                const numMatch = parts[1]?.match(/\d+/);
-                return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
-            };
-
+            // --- Interaction Functions ---
             const createEvent = (type) => {
                 recordHistory();
-                const sameTypeEvents = events.filter(e => e.EventType === type);
-                const newId = `Event_${type}${sameTypeEvents.length}`;
-                const eventSummary = getEventSummary(newId);
-                const startNodeId = `Node${eventSummary}00`;
-                const newEvent = { EventID: newId, DevComment: "New Event", StartNodeID: startNodeId, StartCondition: "None", TargetUnitCondition: "None", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 };
-                const firstNode = { NodeID: startNodeId, DevComment: "Start Point", LinkedEventID: newId, NodeType: "Normal", ChoiceIDs: [], depth: 0 };
-                setEvents([...events, newEvent]); setNodes([...nodes, firstNode]);
-                setSelectedEventId(newId); setSelectedElement({ type: 'event', id: newId });
+                const count = events.filter(e => e.EventType === type).length;
+                const id = `Event_${type}${count}`;
+                const startId = `Node${getEventSummary(id)}00`;
+                setEvents([...events, { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 }]);
+                setNodes([...nodes, { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [], depth: 0 }]);
+                setSelectedEventId(id); setSelectedElement({ type: 'event', id });
             };
 
             const createNode = (depth) => {
                 if (!selectedEventId) return;
                 recordHistory();
-                const currentEv = events.find(e => e.EventID === selectedEventId);
-                const eventSummary = getEventSummary(currentEv.EventID);
-                const nodesInDepth = nodes.filter(n => n.LinkedEventID === selectedEventId && n.depth === depth);
-                const newId = `Node${eventSummary}${depth}${nodesInDepth.length}`;
-                const newNode = { NodeID: newId, DevComment: "Description...", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [], depth: depth };
-                setNodes([...nodes, newNode]); setSelectedElement({ type: 'node', id: newId });
+                const nid = `Node${getEventSummary(selectedEventId)}${depth}${nodes.filter(n => n.LinkedEventID === selectedEventId && n.depth === depth).length}`;
+                setNodes([...nodes, { NodeID: nid, DevComment: "Description...", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [], depth }]);
+                setSelectedElement({ type: 'node', id: nid });
             };
 
             const createChoice = (nodeId) => {
                 const node = nodes.find(n => n.NodeID === nodeId);
                 if (!node || node.ChoiceIDs.length >= 3) return;
                 recordHistory();
-                const currentEv = events.find(e => e.EventID === selectedEventId);
-                const eventSummary = getEventSummary(currentEv.EventID);
-                const nodeCoordinate = nodeId.slice(-2);
-                const newId = `Choice${eventSummary}${nodeCoordinate}${node.ChoiceIDs.length}`;
-                const newChoice = { ChoiceID: newId, DevComment: "New Choice", LinkedNodeID: nodeId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
-                setChoices([...choices, newChoice]);
-                setNodes(nodes.map(n => n.NodeID === nodeId ? { ...n, ChoiceIDs: [...n.ChoiceIDs, newId] } : n));
-                setSelectedElement({ type: 'choice', id: newId });
+                const cid = `Choice${getEventSummary(selectedEventId)}${nodeId.slice(-2)}${node.ChoiceIDs.length}`;
+                setChoices([...choices, { ChoiceID: cid, DevComment: "New Choice", LinkedNodeID: nodeId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" }]);
+                setNodes(nodes.map(n => n.NodeID === nodeId ? { ...n, ChoiceIDs: [...n.ChoiceIDs, cid] } : n));
+                setSelectedElement({ type: 'choice', id: cid });
             };
 
             const onChoiceDragStart = (e, choiceId) => { setDraggingChoiceId(choiceId); e.dataTransfer.setData("choiceId", choiceId); };
-            const onNodeDragOver = (e, nodeId) => {
-                e.preventDefault();
-                const choice = choices.find(c => c.ChoiceID === draggingChoiceId);
-                if (!choice) return;
-                const srcNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
-                const targetNode = nodes.find(n => n.NodeID === nodeId);
-                if (srcNode && targetNode && targetNode.depth > srcNode.depth) setDropTargetId(nodeId);
-            };
-
+            const onNodeDragOver = (e, nodeId) => { e.preventDefault(); const c = choices.find(x => x.ChoiceID === draggingChoiceId); if (c && nodes.find(n => n.NodeID === nodeId).depth > nodes.find(n => n.NodeID === c.LinkedNodeID).depth) setDropTargetId(nodeId); };
+            
             const onNodeDrop = (e, targetNodeId) => {
-                e.preventDefault();
-                const choiceId = draggingChoiceId;
-                const choice = choices.find(c => c.ChoiceID === choiceId);
-                if (!choice) return;
-                const sourceNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
-                const targetNode = nodes.find(n => n.NodeID === targetNodeId);
-                if (targetNode.depth <= sourceNode.depth) showToast("⚠️ Depth Error: 더 깊은 단계로만 연결 가능합니다.");
-                else {
+                e.preventDefault(); const cid = draggingChoiceId; const c = choices.find(x => x.ChoiceID === cid);
+                if (c && nodes.find(n => n.NodeID === targetNodeId).depth > nodes.find(n => n.NodeID === c.LinkedNodeID).depth) {
                     recordHistory();
-                    const newAction = `ShowNextNode_${targetNodeId}_100`;
-                    const currentActions = (choice.OnSelectAction || "").split('\n').filter(a => a.trim() !== "");
-                    if (!currentActions.some(a => a.includes(targetNodeId))) {
-                        const updatedAction = [...currentActions, newAction].join('\n');
-                        setChoices(prev => prev.map(c => c.ChoiceID === choiceId ? { ...c, OnSelectAction: updatedAction } : c));
+                    const acts = (c.OnSelectAction || "").split('\n').filter(a => a.trim());
+                    if (!acts.some(a => a.includes(targetNodeId))) {
+                        setChoices(prev => prev.map(x => x.ChoiceID === cid ? { ...x, OnSelectAction: [...acts, `ShowNextNode_${targetNodeId}_100`].join('\n') } : x));
                     }
                 }
                 setDraggingChoiceId(null); setDropTargetId(null);
@@ -391,22 +376,22 @@
 
             const onChoiceDrop = (e, targetChoiceId) => {
                 e.stopPropagation(); e.preventDefault();
-                const draggedId = draggingChoiceId;
-                const targetChoice = choices.find(c => c.ChoiceID === targetChoiceId);
-                const draggedChoice = choices.find(c => c.ChoiceID === draggedId);
-                if (!targetChoice || !draggedChoice || draggedId === targetChoiceId) { setDraggingChoiceId(null); setDropTargetId(null); return; }
-                const nodeA = nodes.find(n => n.NodeID === draggedChoice.LinkedNodeID);
-                const nodeB = nodes.find(n => n.NodeID === targetChoice.LinkedNodeID);
+                const dragId = draggingChoiceId; const tC = choices.find(x => x.ChoiceID === targetChoiceId); const dC = choices.find(x => x.ChoiceID === dragId);
+                if (!tC || !dC || dragId === targetChoiceId) { setDraggingChoiceId(null); setDropTargetId(null); return; }
+                const depthS = nodes.find(n => n.NodeID === dC.LinkedNodeID).depth;
+                const depthT = nodes.find(n => n.NodeID === tC.LinkedNodeID).depth;
                 let source, target;
-                if (nodeA.depth < nodeB.depth) { source = draggedChoice; target = targetChoice; }
-                else if (nodeB.depth < nodeA.depth) { source = targetChoice; target = draggedChoice; }
-                else { showToast("Depth constraint conflict."); setDraggingChoiceId(null); setDropTargetId(null); return; }
-
+                if (depthS < depthT) { source = dC; target = tC; } else if (depthT < depthS) { source = tC; target = dC; } else { showToast("Depth Error"); setDraggingChoiceId(null); return; }
+                
                 recordHistory();
                 setChoices(prev => prev.map(c => {
                     if (c.ChoiceID === source.ChoiceID) {
                         let newType = c.ActiveTooltipType === "None" ? "ShowChoiceAction" : c.ActiveTooltipType;
-                        let newVal = (newType === "Probability") ? (c.ActiveTooltipValue ? `${c.ActiveTooltipValue},${target.ChoiceID}` : target.ChoiceID) : target.ChoiceID;
+                        let newVal = c.ActiveTooltipValue;
+                        if (newType === "Probability") {
+                            const list = newVal ? newVal.split(',') : [];
+                            if (!list.includes(target.ChoiceID)) newVal = [...list, target.ChoiceID].join(',');
+                        } else { newVal = target.ChoiceID; }
                         return { ...c, ActiveTooltipType: newType, ActiveTooltipValue: newVal };
                     }
                     return c;
@@ -417,28 +402,27 @@
             const handleChoiceHover = useCallback((e, choice) => {
                 if (draggingChoiceId || editingChoiceCommentId) return;
                 let content = "";
-                if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "No actions.";
+                if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "No Action";
                 else if (choice.ActiveTooltipType === "ShowChoiceAction" && choice.ActiveTooltipValue) {
-                    const t = choices.find(c => c.ChoiceID === choice.ActiveTooltipValue);
-                    content = t?.OnSelectAction || `(Ref: ${choice.ActiveTooltipValue})`;
+                    content = choices.find(c => c.ChoiceID === choice.ActiveTooltipValue)?.OnSelectAction || "Ref Error";
                 } else if (choice.ActiveTooltipType === "Probability" && choice.ActiveTooltipValue) {
-                    const tIds = choice.ActiveTooltipValue.split(',');
-                    const actions = (choice.OnSelectAction || "").split('\n');
-                    let totalW = 0; const wMap = {};
-                    actions.forEach(a => { const m = a.match(/ShowNextNode_([Nodea-zA-Z0-9]+)_(\d+)/); if (m) { totalW += parseInt(m[2]); wMap[m[1]] = parseInt(m[2]); } });
-                    const res = tIds.map(tid => {
+                    const targetIds = choice.ActiveTooltipValue.split(',');
+                    const acts = (choice.OnSelectAction || "").split('\n');
+                    let totalW = 0; const weightMap = {};
+                    acts.forEach(a => {
+                        const m = a.match(/ShowNextNode_([Nodea-zA-Z0-9]+)_(\d+)/);
+                        if (m) { const w = parseInt(m[2]); totalW += w; weightMap[m[1]] = w; }
+                    });
+                    content = targetIds.map(tid => {
                         const tc = choices.find(c => c.ChoiceID === tid);
                         if (!tc) return null;
-                        const weight = wMap[tc.LinkedNodeID] || 0;
-                        const prob = totalW > 0 ? Math.round((weight / totalW) * 100) : 0;
-                        return `(${prob}%) ${tc.OnSelectAction || 'None'}`;
-                    }).filter(r => r);
-                    content = res.join('\n');
+                        const w = weightMap[tc.LinkedNodeID] || 0;
+                        const p = totalW > 0 ? Math.round((w / totalW) * 100) : 0;
+                        return `(${p}%) ${tc.OnSelectAction || 'None'}`;
+                    }).filter(r => r).join('\n');
                 }
-                if (content) setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
+                if (content) setTooltip({ show: true, x: e.clientX + 10, y: e.clientY + 10, content });
             }, [draggingChoiceId, editingChoiceCommentId, choices]);
-
-            const updateTooltipType = (choiceId, type) => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c)); setCtxMenu({ show: false }); };
 
             const saveWeightEdit = () => {
                 if (!editingWeightData) return;
@@ -448,17 +432,25 @@
                 setChoices(prev => prev.map(c => {
                     if (c.ChoiceID === choiceId) {
                         const acts = (c.OnSelectAction || "").split('\n');
-                        const upd = acts.map((act, idx) => idx === actionIndex ? act.replace(/(_\d+)$/, `_${newW}`) : act);
-                        return { ...c, OnSelectAction: upd.join('\n') };
+                        const updated = acts.map((act, idx) => {
+                            if (idx === actionIndex) {
+                                // 정규식을 사용하여 기존에 _숫자가 있든 없든 정확히 NodeID 뒤에 가중치 삽입
+                                return act.replace(/(ShowNextNode_[A-Za-z0-9]+)(_\d+)?$/, (m, p1) => `${p1}_${newW}`);
+                            }
+                            return act;
+                        });
+                        return { ...c, OnSelectAction: updated.join('\n') };
                     }
                     return c;
                 }));
                 setEditingWeightData(null);
             };
 
+            const updateTooltipType = (choiceId, type) => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c)); setCtxMenu({ show: false }); };
+
             const executeDelete = () => {
                 const { type, id } = deleteModal.show ? deleteModal : { type: ctxMenu.type, id: ctxMenu.id };
-                if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) { showToast("Start node protected."); return; }
+                if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) return;
                 recordHistory();
                 if (type === 'event') {
                     const rem = events.filter(e => e.EventID !== id);
@@ -467,16 +459,16 @@
                 } else if (type === 'node') {
                     setNodes(nodes.filter(n => n.NodeID !== id)); setChoices(choices.filter(c => c.LinkedNodeID !== id));
                 } else if (type === 'choice') {
+                    const cToDelete = choices.find(c => c.ChoiceID === id);
+                    const ownerNodeId = cToDelete ? cToDelete.LinkedNodeID : null;
                     setChoices(choices.filter(c => c.ChoiceID !== id));
-                    setNodes(nodes.map(n => n.NodeID === choices.find(c=>c.ChoiceID===id).LinkedNodeID ? { ...n, ChoiceIDs: n.ChoiceIDs.filter(cid => cid !== id) } : n));
+                    if (ownerNodeId) setNodes(nodes.map(n => n.NodeID === ownerNodeId ? { ...n, ChoiceIDs: n.ChoiceIDs.filter(cid => cid !== id) } : n));
                 }
                 setDeleteModal({ show: false }); setCtxMenu({ show: false }); setSelectedElement(null);
             };
 
             const handleContextMenu = (e, type, id) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ show: true, x: e.clientX, y: e.clientY, type, id }); };
-            useEffect(() => { const close = () => { if(ctxMenu.show) setCtxMenu({ show: false }); }; window.addEventListener('click', close); return () => window.removeEventListener('click', close); }, [ctxMenu.show]);
 
-            // --- Lines ---
             const [lines, setLines] = useState([]);
             const updateLines = useCallback(() => {
                 const res = [];
@@ -492,9 +484,9 @@
                             if (startEl && endEl && canvasRef.current) {
                                 const rectC = canvasRef.current.getBoundingClientRect();
                                 const rectS = startEl.getBoundingClientRect(), rectE = endEl.getBoundingClientRect();
-                                const x1 = rectS.right - rectC.left, y1 = rectS.top + (rectS.height / 2) - rectC.top;
-                                const x2 = rectE.left - rectC.left, y2 = rectE.top + (rectE.height / 2) - rectC.top;
-                                res.push({ id: `${choice.ChoiceID}-${targetId}-${idx}`, choiceId: choice.ChoiceID, actionIndex: idx, d: `M ${x1} ${y1} C ${x1 + (x2-x1)/2} ${y1}, ${x1 + (x2-x1)/2} ${y2}, ${x2} ${y2}`, weight, lx: x1 + (x2 - x1) * 0.45, ly: y1 + (y2 - y1) * 0.5 - 12 });
+                                const x1 = rectS.right - rectC.left, y1 = rectS.top + rectS.height/2 - rectC.top;
+                                const x2 = rectE.left - rectC.left, y2 = rectE.top + rectE.height/2 - rectC.top;
+                                res.push({ id: `${choice.ChoiceID}-${targetId}-${idx}`, choiceId: choice.ChoiceID, actionIndex: idx, d: `M ${x1} ${y1} C ${x1 + (x2-x1)/2} ${y1}, ${x1 + (x2-x1)/2} ${y2}, ${x2} ${y2}`, weight, lx: (x1+x2)/2, ly: (y1+y2)/2 - 12 });
                             }
                         }
                     });
@@ -520,7 +512,7 @@
                     });
                     setEvents(eS); setNodes(parsedNodes); setChoices(parsedChoices);
                     if (eS.length > 0) setSelectedEventId(eS[0].EventID);
-                    setShowImportModal(false); setImportText(""); showToast("Imported Successfully");
+                    setShowImportModal(false); setImportText(""); showToast("Import Success");
                 } catch (e) { alert("Import Failed"); }
             };
 
@@ -529,9 +521,8 @@
                     {toast.show && <div className="toast"><Icon name="Info" size={18} /> {toast.message}</div>}
                     {tooltip.show && <div className="tooltip bg-black/90 text-white text-[11px] px-3 py-2 rounded-xl shadow-2xl font-mono whitespace-pre-wrap max-w-xs animate-fadeIn border border-white/10" style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}>{tooltip.content}</div>}
                     
-                    <div className={`cloud-indicator ${cloudStatus === 'saved' ? 'text-green-600 bg-green-50' : (cloudStatus === 'syncing' ? 'text-blue-600 bg-blue-50' : (cloudStatus === 'offline' ? 'text-gray-400 bg-gray-100' : 'text-red-600 bg-red-50'))}`}>
-                        <Icon name="Cloud" size={12} />
-                        {cloudStatus === 'syncing' ? 'Saving...' : (cloudStatus === 'saved' ? 'Cloud Sync On' : (cloudStatus === 'offline' ? 'Offline Mode' : 'Error'))}
+                    <div className={`cloud-indicator ${cloudStatus === 'saved' ? 'text-green-600 bg-green-50 border border-green-200' : (cloudStatus === 'syncing' ? 'text-blue-600 bg-blue-50 border border-blue-200' : (cloudStatus === 'offline' ? 'text-gray-400 bg-gray-100' : 'text-red-600 bg-red-50'))}`}>
+                        <Icon name="Cloud" size={12} className={cloudStatus === 'syncing' ? 'animate-bounce' : ''} /> {cloudStatus === 'saved' ? 'Cloud Saved' : cloudStatus.toUpperCase()}
                     </div>
 
                     {ctxMenu.show && (
@@ -542,57 +533,57 @@
                             {ctxMenu.type === 'choice' && (
                                 <>
                                     <div className="ctx-divider" />
-                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'ShowAction')} className="ctx-item"><Icon name="MousePointer" size={14} /> ToolTip : Self</button>
-                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'ShowChoiceAction')} className="ctx-item"><Icon name="Info" size={14} /> ToolTip : Choice</button>
-                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'Probability')} className="ctx-item"><Icon name="Save" size={14} /> ToolTip : Probability</button>
-                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'None')} className="ctx-item opacity-50"><Icon name="Trash2" size={14} /> ToolTip : None</button>
+                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'ShowAction')} className="ctx-item">ToolTip : Self</button>
+                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'ShowChoiceAction')} className="ctx-item">ToolTip : Choice</button>
+                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'Probability')} className="ctx-item">ToolTip : Probability</button>
+                                    <button onClick={() => updateTooltipType(ctxMenu.id, 'None')} className="ctx-item opacity-50">ToolTip : None</button>
                                 </>
                             )}
                         </div>
                     )}
 
                     {editingWeightData && (
-                        <div className="weight-input-box animate-fadeIn" style={{ left: editingWeightData.x, top: editingWeightData.y }}>
-                            <div className="text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1 text-center">Set Weight</div>
+                        <div className="weight-input-box animate-fadeIn shadow-2xl" style={{ left: editingWeightData.x, top: editingWeightData.y }}>
+                            <div className="text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1 text-center font-bold">Set Weight</div>
                             <input autoFocus type="number" className="w-20 border-b-2 border-blue-200 outline-none text-sm font-bold text-center p-1" value={tempValue} onChange={(e) => setTempValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveWeightEdit(); else if (e.key === 'Escape') setEditingWeightData(null); }} onBlur={saveWeightEdit} />
                         </div>
                     )}
 
-                    <aside className="w-64 bg-white border-r flex flex-col shrink-0">
-                        <div className="p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm">Visual Editor v2.9.3</div>
+                    <aside className="w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30">
+                        <div className="p-5 border-b font-black text-blue-600 uppercase italic text-sm tracking-tighter">Editor v2.9.9</div>
                         <div className="flex-1 overflow-y-auto p-3 space-y-5">
                             {['Fixed', 'Random'].map(type => (
                                 <div key={type}>
-                                    <div className="text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest">{type} Events</div>
+                                    <div className="text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold">{type} Events</div>
                                     {events.filter(e => e.EventType === type).map(ev => (
-                                        <div key={ev.EventID} className="group relative mb-1.5">
+                                        <div key={ev.EventID} className="group relative mb-1.5 font-bold">
                                             <button onClick={() => { setSelectedEventId(ev.EventID); setSelectedElement({ type: 'event', id: ev.EventID }); }}
-                                                className={`w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-gray-100'}`}>
+                                                className={`w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-400' : 'hover:bg-gray-100'}`}>
                                                 <div className="text-xs font-bold truncate">{ev.EventID}</div>
-                                                <div className={`text-[10px] truncate opacity-60`}>{ev.DevComment}</div>
+                                                <div className="text-[10px] truncate opacity-60 font-medium">{ev.DevComment}</div>
                                             </button>
                                             <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'event', id: ev.EventID }); }}
                                                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 transition-all ${selectedEventId === ev.EventID ? 'text-white' : 'text-gray-300 hover:text-red-500'}`}><Icon name="Trash2" size={14} /></button>
                                         </div>
                                     ))}
-                                    <button onClick={() => createEvent(type)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-[10px] text-gray-400 hover:border-blue-300 hover:text-blue-500 font-bold uppercase mt-2">+ {type}</button>
+                                    <button onClick={() => createEvent(type)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-[10px] text-gray-400 hover:border-blue-300 hover:text-blue-500 font-bold uppercase mt-2 shadow-sm">+ {type}</button>
                                 </div>
                             ))}
                         </div>
                         <div className="p-5 bg-gray-50 border-t space-y-2.5">
                             <div className="flex gap-2">
-                                <button onClick={performUndo} disabled={undoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 uppercase shadow-sm">Undo</button>
-                                <button onClick={performRedo} disabled={redoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 uppercase shadow-sm">Redo</button>
+                                <button onClick={performUndo} disabled={undoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 uppercase shadow-sm font-bold">Undo</button>
+                                <button onClick={performRedo} disabled={redoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 disabled:opacity-30 uppercase shadow-sm font-bold">Redo</button>
                             </div>
-                            <button onClick={() => setShowImportModal(true)} className="w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-gray-100 uppercase tracking-widest"><Icon name="Upload" size={14} /> Import</button>
-                            <button onClick={downloadJSON} className="w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black transition-colors uppercase tracking-widest shadow-lg"><Icon name="Download" size={14} /> Export</button>
+                            <button onClick={() => setShowImportModal(true)} className="w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-gray-100 uppercase shadow-sm font-bold font-bold transition-all"><Icon name="Upload" size={14} /> Import</button>
+                            <button onClick={downloadJSON} className="w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black uppercase tracking-widest shadow-lg font-bold font-bold transition-all"><Icon name="Download" size={14} /> Export</button>
                         </div>
                     </aside>
 
                     <main className="flex-1 flex flex-col min-w-0 bg-gray-50 relative overflow-hidden">
-                        <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0 z-20 shadow-sm">
-                            <div className="flex items-center gap-3 font-black text-gray-700">{selectedEventId || "SELECT EVENT"}{selectedEventId && <span className="text-[10px] bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-mono uppercase ml-2">{events.find(e=>e.EventID === selectedEventId)?.EventType}</span>}</div>
-                            <button onClick={() => createNode(maxDepth + 1)} disabled={!selectedEventId} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 hover:bg-blue-700 disabled:opacity-30 shadow-xl transition-all shadow-blue-100"><Icon name="Plus" size={14} /> NEW DEPTH COLUMN</button>
+                        <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0 z-20 shadow-sm font-bold">
+                            <div className="flex items-center gap-3 font-black text-gray-700 tracking-tight">{selectedEventId || "SELECT EVENT"}{selectedEventId && <span className="text-[10px] bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-mono uppercase ml-2 tracking-tighter shadow-sm font-bold font-bold">{events.find(e=>e.EventID === selectedEventId)?.EventType}</span>}</div>
+                            <button onClick={() => createNode(maxDepth + 1)} disabled={!selectedEventId} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 hover:bg-blue-700 disabled:opacity-30 shadow-xl transition-all font-bold uppercase tracking-widest uppercase font-bold"><Icon name="Plus" size={14} /> NEW DEPTH COLUMN</button>
                         </header>
 
                         <div className="flex-1 overflow-auto pattern-grid relative" onScroll={() => updateLines()}>
@@ -608,42 +599,42 @@
 
                                 {Array.from({ length: maxDepth + 1 }).map((_, dIdx) => (
                                     <div key={dIdx} className="flex flex-col gap-10 w-72 shrink-0">
-                                        <div className="text-center px-4"><div className="text-[11px] font-black text-gray-400 uppercase tracking-[0.3em] mb-4">Depth {dIdx}</div>{dIdx > 0 && <button onClick={() => createNode(dIdx)} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] text-gray-400 hover:bg-white hover:border-blue-400 hover:text-blue-500 transition-all font-black uppercase tracking-widest">ADD NODE</button>}</div>
+                                        <div className="text-center px-4 font-bold text-[11px] text-gray-400 uppercase tracking-[0.3em] mb-4 font-bold font-bold font-bold font-bold">Depth {dIdx}</div>
+                                        {dIdx > 0 && <button onClick={() => createNode(dIdx)} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] text-gray-400 hover:bg-white hover:border-blue-400 hover:text-blue-500 transition-all font-black uppercase tracking-widest shadow-sm font-bold font-bold font-bold font-bold">ADD NODE</button>}
                                         {nodesByDepth[dIdx]?.map(node => (
                                             <div key={node.NodeID} ref={el => elementRefs.current[node.NodeID] = el}
                                                 onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'node', id: node.NodeID }); }}
                                                 onContextMenu={(e) => handleContextMenu(e, 'node', node.NodeID)}
                                                 onDragOver={(e) => onNodeDragOver(e, node.NodeID)} onDrop={(e) => onNodeDrop(e, node.NodeID)}
                                                 className={`node-card bg-white rounded-3xl shadow-sm border-2 overflow-hidden transition-all relative ${selectedElement?.id === node.NodeID ? 'border-blue-500 ring-4 ring-blue-50 scale-105 shadow-2xl' : 'border-gray-100 hover:border-gray-200'} ${dropTargetId === node.NodeID ? 'drop-target-active' : ''}`}>
-                                                <div className="bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center"><span className="text-[10px] font-mono font-black text-gray-400">{node.NodeID}</span><span className="text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter">{node.NodeType}</span></div>
-                                                <div className="p-5">
+                                                <div className="bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight text-[10px] font-mono text-gray-400">{node.NodeID} <span className="text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter">{node.NodeType}</span></div>
+                                                <div className="p-5 font-bold">
                                                     {editingNodeCommentId === node.NodeID ? (
-                                                        <textarea autoFocus className="w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif italic text-gray-600 bg-white" value={tempComment} onChange={(e) => setTempComment(e.target.value)} onBlur={() => { if (tempComment !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempComment} : n)); } setEditingNodeCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) e.currentTarget.blur(); else if (e.key === 'Escape') setEditingNodeCommentId(null); }} />
+                                                        <textarea autoFocus className="w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif italic text-gray-600 bg-white" value={tempValue} onChange={(e) => setTempValue(e.target.value)} onBlur={() => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNodeCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) e.currentTarget.blur(); else if (e.key === 'Escape') setEditingNodeCommentId(null); }} />
                                                     ) : (
-                                                        <p onDoubleClick={(e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempComment(node.DevComment); }} className="text-[13px] text-gray-600 italic mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words">"{node.DevComment}"</p>
+                                                        <p onDoubleClick={(e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }} className="text-[13px] text-gray-600 italic mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words">"{node.DevComment}"</p>
                                                     )}
                                                     <div className="space-y-2">
                                                         {node.ChoiceIDs.map(cid => {
-                                                            const c = choices.find(x => x.ChoiceID === cid);
-                                                            if(!c) return null;
-                                                            const isEditingChoice = editingChoiceCommentId === cid;
+                                                            const c = choices.find(x => x.ChoiceID === cid); if(!c) return null;
+                                                            const isEd = editingChoiceCommentId === cid;
                                                             return (
                                                                 <div key={cid} ref={el => elementRefs.current[cid] = el}
-                                                                    draggable={!isEditingChoice} onDragStart={(e) => onChoiceDragStart(e, cid)} onDragOver={(e) => onChoiceDragOver(e, cid)} onDrop={(e) => onChoiceDrop(e, cid)} onMouseEnter={(e) => !isEditingChoice && handleChoiceHover(e, c)} onMouseLeave={() => { setTooltip({ ...tooltip, show: false }); setDropTargetId(null); }} onContextMenu={(e) => handleContextMenu(e, 'choice', cid)} onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'choice', id: cid }); }}
-                                                                    className={`p-2.5 border rounded-2xl text-[11px] flex justify-between items-center transition-all cursor-grab active:cursor-grabbing ${isEditingChoice ? 'ring-2 ring-blue-500 bg-white shadow-lg' : (selectedElement?.id === cid ? 'bg-orange-50 border-orange-400 text-orange-800 font-black shadow-md' : 'bg-white border-gray-100 hover:bg-gray-50 hover:shadow-sm')} ${dropTargetId === cid ? 'choice-drop-target-active' : ''}`}>
-                                                                    <div className="flex items-center gap-2 overflow-hidden flex-1">
-                                                                        {!isEditingChoice && <Icon name="MousePointer" size={10} className={`${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0`} />}
-                                                                        {isEditingChoice ? (
-                                                                            <input autoFocus className="w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold" value={tempComment} onChange={(e) => setTempComment(e.target.value)} onBlur={() => { if (tempComment !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempComment} : item)); } setEditingChoiceCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); }} />
+                                                                    draggable={!isEd} onDragStart={(e) => onChoiceDragStart(e, cid)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onChoiceDrop(e, cid)} onMouseEnter={(e) => !isEd && handleChoiceHover(e, c)} onMouseLeave={() => { setTooltip({ ...tooltip, show: false }); }} onContextMenu={(e) => handleContextMenu(e, 'choice', cid)} onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'choice', id: cid }); }}
+                                                                    className={`p-2.5 border rounded-2xl text-[11px] flex justify-between items-center transition-all cursor-grab active:cursor-grabbing ${isEd ? 'ring-2 ring-blue-500 bg-white shadow-lg' : (selectedElement?.id === cid ? 'bg-orange-50 border-orange-400 text-orange-800 font-black shadow-md' : 'bg-white border-gray-100 hover:bg-gray-50 hover:shadow-sm')}`}>
+                                                                    <div className="flex items-center gap-2 overflow-hidden flex-1 font-bold truncate">
+                                                                        {!isEd && <Icon name="MousePointer" size={10} className={`${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0`} />}
+                                                                        {isEd ? (
+                                                                            <input autoFocus className="w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold" value={tempValue} onChange={(e) => setTempValue(e.target.value)} onBlur={() => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); }} />
                                                                         ) : (
-                                                                            <span className="flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors" onDoubleClick={(e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempComment(c.DevComment); }}>{c.DevComment}</span>
+                                                                            <span className="flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors" onDoubleClick={(e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempValue(c.DevComment); }}>{c.DevComment}</span>
                                                                         )}
                                                                     </div>
-                                                                    {!isEditingChoice && <div className="flex gap-1.5 ml-2 shrink-0">{c.ActiveTooltipType !== "None" && <Icon name="Info" size={11} className={c.ActiveTooltipType === "Probability" ? "text-blue-500" : "text-purple-400"} />}<Icon name="ArrowRight" size={11} className={c.OnSelectAction ? "text-blue-500" : "text-gray-200"} /></div>}
+                                                                    {!isEd && <div className="flex gap-1.5 ml-2 shrink-0">{c.ActiveTooltipType !== "None" && <Icon name="Info" size={11} className={c.ActiveTooltipType === "Probability" ? "text-blue-500" : "text-purple-400"} />}<Icon name="ArrowRight" size={11} className={c.OnSelectAction ? "text-blue-500" : "text-gray-200"} /></div>}
                                                                 </div>
                                                             );
                                                         })}
-                                                        {node.ChoiceIDs.length < 3 && <button onClick={(e) => { e.stopPropagation(); createChoice(node.NodeID); }} className="w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] font-black text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1">Add Choice</button>}
+                                                        {node.ChoiceIDs.length < 3 && <button onClick={(e) => { e.stopPropagation(); createChoice(node.NodeID); }} className="w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] font-black text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold">Add Choice</button>}
                                                     </div>
                                                 </div>
                                             </div>
@@ -655,52 +646,30 @@
                     </main>
 
                     {selectedElement && viewMode === 'editor' && (
-                        <aside className="w-80 bg-white border-l p-6 shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
-                            <div className="flex justify-between items-center mb-8 font-black text-[11px] text-gray-400 tracking-[0.4em] uppercase">{selectedElement.type} PROPERTIES
-                                {!(selectedElement.type === 'node' && nodes.find(n => n.NodeID === selectedElement.id)?.depth === 0) && (
-                                    <button onClick={() => setDeleteModal({ show: true, type: selectedElement.type, id: selectedElement.id })} className="text-gray-300 hover:text-red-500 transition-all"><Icon name="Trash2" size={20} /></button>
-                                )}
-                            </div>
+                        <aside className="w-80 bg-white border-l p-6 shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200 font-bold">
+                            <div className="flex justify-between items-center mb-8 font-black text-[11px] text-gray-400 tracking-[0.4em] uppercase">{selectedElement.type} PROPERTIES {!(selectedElement.type === 'node' && nodes.find(n => n.NodeID === selectedElement.id)?.depth === 0) && (<button onClick={() => setDeleteModal({ show: true, type: selectedElement.type, id: selectedElement.id })} className="text-gray-300 hover:text-red-500 transition-all"><Icon name="Trash2" size={20} /></button>)}</div>
                             <div className="space-y-8">
                                 {selectedElement.type === 'event' && (() => {
-                                    const ev = events.find(e => e.EventID === selectedElement.id);
-                                    if (!ev) return null;
+                                    const ev = events.find(e => e.EventID === selectedElement.id); if (!ev) return null;
                                     return (
-                                        <div className="space-y-5 animate-fadeIn">
+                                        <div className="space-y-4 animate-fadeIn font-bold">
                                             <PropField label="Event ID" value={ev.EventID} readOnly />
                                             <PropField label="Dev Comment" value={ev.DevComment} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, DevComment: v} : e)); }} type="textarea" />
                                             <PropField label="Start Condition" value={ev.StartCondition} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, StartCondition: v} : e)); }} />
-                                            <PropField label="Target Unit Condition" value={ev.TargetUnitCondition} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, TargetUnitCondition: v} : e)); }} />
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <PropField label="Weight" value={ev.Weight} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }} type="number" />
-                                                <PropField label="CoolDown" value={ev.CoolDown} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }} type="number" />
-                                            </div>
-                                            <div className="flex items-center gap-3 pt-2 font-bold"><input type="checkbox" checked={ev.IsRepeatable} onChange={e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }} className="w-5 h-5 text-blue-600 rounded-lg border-gray-300" /><label className="text-[11px] font-black text-gray-500 uppercase tracking-tighter">Is Repeatable</label></div>
+                                            <div className="grid grid-cols-2 gap-3 font-bold"><PropField label="Weight" value={ev.Weight} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }} type="number" /><PropField label="CoolDown" value={ev.CoolDown} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }} type="number" /></div>
+                                            <div className="flex items-center gap-3 pt-2 font-bold"><input type="checkbox" checked={ev.IsRepeatable} onChange={e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }} className="w-5 h-5 text-blue-600 rounded-lg border-gray-300" /><label className="text-[11px] font-black text-gray-500 uppercase tracking-tighter font-bold">Is Repeatable</label></div>
                                         </div>
                                     )
                                 })()}
                                 {selectedElement.type === 'node' && (() => {
-                                    const node = nodes.find(n => n.NodeID === selectedElement.id);
-                                    if (!node) return null;
-                                    return (
-                                        <div className="space-y-4 animate-fadeIn">
-                                            <PropField label="Node ID" value={node.NodeID} readOnly />
-                                            <PropField label="Node Type" value={node.NodeType} onChange={v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: v} : n)); }} type="select" options={["Normal", "Reward", "Combat", "End"]} />
-                                            <PropField label="Dev Comment" value={node.DevComment} onChange={v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: v} : n)); }} type="textarea" />
-                                        </div>
-                                    )
+                                    const node = nodes.find(n => n.NodeID === selectedElement.id); if (!node) return null;
+                                    return (<div className="space-y-4 animate-fadeIn font-bold"><PropField label="Node ID" value={node.NodeID} readOnly /><PropField label="Type" value={node.NodeType} onChange={v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: v} : n)); }} type="select" options={["Normal", "Reward", "Combat", "End"]} /><PropField label="Dev Comment" value={node.DevComment} onChange={v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: v} : n)); }} type="textarea" /></div>)
                                 })()}
                                 {selectedElement.type === 'choice' && (() => {
-                                    const choice = choices.find(c => c.ChoiceID === selectedElement.id);
-                                    if (!choice) return null;
+                                    const c = choices.find(x => x.ChoiceID === selectedElement.id); if (!c) return null;
                                     return (
-                                        <div className="space-y-5 animate-fadeIn">
-                                            <PropField label="Choice ID" value={choice.ChoiceID} readOnly />
-                                            <PropField label="Dev Comment" value={choice.DevComment} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, DevComment: v} : c)); }} type="textarea" />
-                                            <PropField label="On Select Actions" value={choice.OnSelectAction} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, OnSelectAction: v} : c)); }} type="textarea" />
-                                            <PropField label="Active Condition" value={choice.ActiveCondition} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveCondition: v} : c)); }} />
-                                            <PropField label="Active Tooltip Type" value={choice.ActiveTooltipType} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveTooltipType: v} : c)); }} type="select" options={["None", "ShowAction", "ShowChoiceAction", "Probability"]} />
-                                            <PropField label="Tooltip Value" value={choice.ActiveTooltipValue || ""} onChange={v => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choice.ChoiceID ? {...c, ActiveTooltipValue: v} : c)); }} />
+                                        <div className="space-y-5 animate-fadeIn font-bold">
+                                            <PropField label="Choice ID" value={c.ChoiceID} readOnly /><PropField label="Dev Comment" value={c.DevComment} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, DevComment: v} : x)); }} type="textarea" /><PropField label="Actions" value={c.OnSelectAction} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, OnSelectAction: v} : x)); }} type="textarea" placeholder="ShowNextNode_NodeF010_100" /><PropField label="Condition" value={c.ActiveCondition} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveCondition: v} : x)); }} /><PropField label="Tooltip Type" value={c.ActiveTooltipType} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipType: v} : x)); }} type="select" options={["None", "ShowAction", "ShowChoiceAction", "Probability"]} /><PropField label="Tooltip Value" value={c.ActiveTooltipValue || ""} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipValue: v} : x)); }} />
                                         </div>
                                     )
                                 })()}
@@ -709,17 +678,18 @@
                     )}
 
                     {showImportModal && (
-                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[20000] flex items-center justify-center p-8 animate-fadeIn">
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[20000] flex items-center justify-center p-8 animate-fadeIn font-bold font-bold">
                             <div className="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
-                                <div className="p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest">Import JSON Data<button onClick={() => setShowImportModal(false)} className="hover:rotate-90 transition-transform"><Icon name="Plus" size={32} className="rotate-45 text-gray-400" /></button></div>
-                                <div className="p-8"><textarea className="w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 outline-none shadow-inner transition-all" value={importText} onChange={(e) => setImportText(e.target.value)} /></div>
-                                <div className="p-8 bg-gray-50 border-t flex gap-4 justify-end"><button onClick={() => setShowImportModal(false)} className="px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 uppercase tracking-widest">Cancel</button><button onClick={handleImport} className="px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold">Load</button></div>
+                                <div className="p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest shadow-sm font-bold">Import JSON Data<button onClick={() => setShowImportModal(false)} className="hover:rotate-90 transition-transform"><Icon name="Plus" size={32} className="rotate-45 text-gray-400" /></button></div>
+                                <div className="p-8 space-y-4"><textarea className="w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 shadow-inner shadow-inner transition-all shadow-inner shadow-inner" value={importText} onChange={(e) => setImportText(e.target.value)} /></div>
+                                <div className="p-8 bg-gray-50 border-t flex gap-4 justify-end font-bold"><button onClick={() => setShowImportModal(false)} className="px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 transition-all uppercase tracking-widest font-bold font-bold font-bold font-bold">Cancel</button><button onClick={handleImport} className="px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold">Load</button></div>
                             </div>
                         </div>
                     )}
+
                     {deleteModal.show && (
-                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[11000] flex items-center justify-center p-8 animate-fadeIn">
-                            <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 text-center animate-in zoom-in-95 duration-200"><div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="AlertTriangle" size={40} /></div><h3 className="text-2xl font-black mb-4 tracking-tighter uppercase text-gray-800 tracking-tighter">Delete Item?</h3><div className="flex gap-4 mt-10"><button onClick={() => setDeleteModal({ show: false })} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black hover:bg-gray-200 transition-all uppercase tracking-widest">Cancel</button><button onClick={executeDelete} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-2xl shadow-red-200 hover:bg-red-700 transition-all uppercase tracking-widest">Confirm</button></div></div>
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[11000] flex items-center justify-center p-8 animate-fadeIn font-bold font-bold">
+                            <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 text-center animate-in zoom-in-95 duration-200 font-bold font-bold"><div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="AlertTriangle" size={40} /></div><h3 className="text-2xl font-black mb-4 tracking-tighter uppercase text-gray-800 tracking-tighter font-bold font-bold">Delete Item?</h3><div className="flex gap-4 mt-10 font-bold font-bold"><button onClick={() => setDeleteModal({ show: false })} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black hover:bg-gray-200 transition-all uppercase tracking-widest font-bold font-bold">Cancel</button><button onClick={executeDelete} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-2xl shadow-red-200 hover:bg-red-700 transition-all uppercase tracking-widest font-bold font-bold">Confirm</button></div></div>
                         </div>
                     )}
                 </div>
@@ -727,19 +697,19 @@
         };
 
         const PropField = ({ label, value, onChange, readOnly = false, type = "text", options = [], placeholder = "" }) => (
-            <div className="group/field">
-                <label className="text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-widest group-focus-within/field:text-blue-500 transition-colors font-bold">{label}</label>
+            <div className="group/field font-bold font-bold">
+                <label className="text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-widest group-focus-within/field:text-blue-500 transition-colors font-bold font-bold">{label}</label>
                 {type === "textarea" ? (
                     <textarea value={value} onChange={e => onChange(e.target.value)} rows="5" readOnly={readOnly} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200'}`} />
                 ) : type === "select" ? (
                     <div className="relative">
-                        <select value={value} onChange={e => onChange(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 transition-all shadow-sm">
+                        <select value={value} onChange={e => onChange(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold">
                             {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 font-bold"><Icon name="ArrowRight" className="rotate-90" size={14} /></div>
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 font-bold font-bold font-bold font-bold"><Icon name="ArrowRight" className="rotate-90" size={14} /></div>
                     </div>
                 ) : (
-                    <input type={type} value={value} onChange={e => onChange(e.target.value)} readOnly={readOnly} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none' : 'hover:border-gray-200'}`} />
+                    <input type={type} value={value} onChange={e => onChange(e.target.value)} readOnly={readOnly} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none' : 'hover:border-gray-200'}`} />
                 )}
             </div>
         );
