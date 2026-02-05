@@ -1,0 +1,854 @@
+/*
+ * script.js
+ * Description: This file contains the main React application logic for the DS Event Editor.
+ * It manages state, handles user interactions, integrates with Firebase, and renders the UI components.
+ */
+
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+        // --- Global Helpers ---
+        /**
+         * @function getEventSummary
+         * @description Extracts a concise summary from an event ID. Used for generating shorter, readable IDs.
+         * @param {string} eventId - The full event ID string (e.g., "Event_Fixed0").
+         * @returns {string} A summarized event ID (e.g., "F0" for "Event_Fixed0").
+         */
+        function getEventSummary(eventId) {
+            if (!eventId) return "E";
+            const parts = eventId.split('_'); 
+            const typeChar = parts[1] ? parts[1].charAt(0) : "F";
+            const numMatch = parts[1]?.match(/\d+/);
+            return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
+        }
+// --- Firebase Integration ---
+let isCloudAvailable = false;
+let appId = 'event-editor-app';
+let initialAuthToken = null;
+
+try {
+    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+        const config = JSON.parse(__firebase_config);
+        firebase.initializeApp(config);
+        isCloudAvailable = true;
+    }
+    if (typeof __app_id !== 'undefined' && __app_id) appId = __app_id;
+    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) initialAuthToken = __initial_auth_token;
+} catch (e) { console.warn("Local Mode Active."); }
+
+        const auth = isCloudAvailable ? firebase.auth() : null;
+        const db = isCloudAvailable ? firebase.firestore() : null;
+
+        /**
+         * @function Icon
+         * @description A functional React component that renders SVG icons based on the provided name.
+         * @param {object} props - The component props.
+         * @param {string} props.name - The name of the icon to render (e.g., "Plus", "Trash2").
+         * @param {number} [props.size=16] - The size of the icon in pixels.
+         * @param {string} [props.className=""] - Additional CSS classes for the SVG element.
+         * @returns {JSX.Element} An SVG icon.
+         */
+        const Icon = ({ name, size = 16, className = "" }) => {
+            const icons = {
+                Plus: <path d="M12 5v14M5 12h14" />,        Trash2: <><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M10 11v6M14 11v6" /></>,
+        ArrowRight: <path d="M5 12h14M12 5l7 7-7 7" />,
+        Download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />,
+        Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />,
+        GitBranch: <><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9" /></>,
+        AlertTriangle: <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3ZM12 9v4M12 17h.01" />,
+        MousePointer: <path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3zM13 13l6 6" />,
+        Info: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8" /></>,
+        Save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
+        Cloud: <path d="M17.5 19c3.037 0 5.5-2.463 5.5-5.5 0-2.97-2.354-5.388-5.304-5.485C16.924 4.195 13.771 1 10 1 6.55 1 3.655 3.528 3.1 6.82 1.346 7.647 0 9.4 0 11.5 0 14.537 2.463 17 5.5 17h12M9 13l3 3 3-3M12 16V9" />,
+        Settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></>
+    };
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            {icons[name] || <circle cx="12" cy="12" r="10" />}
+        </svg>
+    );
+        };
+
+        /**
+         * @function App
+         * @description The main application component for the DS Event Editor.
+         * It manages the global state of events, nodes, and choices, handles all user interactions,
+         * integrates with Firebase for data synchronization, and orchestrates the rendering of the UI.
+         * @returns {JSX.Element} The root JSX element of the application.
+         */
+        const App = () => {
+            // --- States ---
+            const [events, setEvents] = useState([]);    const [nodes, setNodes] = useState([]);
+    const [choices, setChoices] = useState([]);
+    const [selectedEventId, setSelectedEventId] = useState("");
+    const [selectedElement, setSelectedElement] = useState(null);
+    const [viewMode, setViewMode] = useState('editor');
+    const [deleteModal, setDeleteModal] = useState({ show: false, type: null, id: null });
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importText, setImportText] = useState("");
+    const [toast, setToast] = useState({ show: false, message: "" });
+    
+    const [cloudStatus, setCloudStatus] = useState(isCloudAvailable ? "idle" : "offline"); 
+    const [user, setUser] = useState(null);
+    const isInitialLoaded = useRef(false);
+
+    const [editingNodeCommentId, setEditingNodeCommentId] = useState(null);
+    const [editingChoiceCommentId, setEditingChoiceCommentId] = useState(null);
+    const [editingWeightData, setEditingWeightData] = useState(null); 
+    const [tempValue, setTempValue] = useState("");
+
+    const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, content: "" });
+    const [draggingChoiceId, setDraggingChoiceId] = useState(null);
+    const [dropTargetId, setDropTargetId] = useState(null);
+    const [ctxMenu, setCtxMenu] = useState({ show: false, x: 0, y: 0, type: null, id: null });
+    
+    const canvasRef = useRef(null);
+    const elementRefs = useRef({});
+    const [undoStack, setUndoStack] = useState([]);
+    const [redoStack, setRedoStack] = useState([]);
+
+                // --- Business Logic ---
+                /**
+                 * @function showToast
+                 * @description Displays a transient toast message to the user.
+                 * @param {string} msg - The message to be displayed in the toast.
+                 */
+                const showToast = useCallback((msg) => { 
+                    setToast({ show: true, message: msg }); 
+                    setTimeout(() => setToast({ show: false, message: "" }), 2500); 
+                }, []);
+                /**
+                 * @function recordHistory
+                 * @description Records the current state of events, nodes, and choices to the undo stack.
+                 * Clears the redo stack upon recording new history.
+                 */
+                const recordHistory = useCallback(() => {
+                    setUndoStack(prev => [...prev.slice(-49), JSON.stringify({ events, nodes, choices })]);
+                    setRedoStack([]);
+                }, [events, nodes, choices]);
+    
+                /**
+                 * @function performUndo
+                 * @description Reverts the application state to the previous snapshot from the undo stack.
+                 * The current state is moved to the redo stack.
+                 */
+                const performUndo = useCallback(() => {
+                    if (undoStack.length === 0) return;
+                    const prevSnapshot = JSON.parse(undoStack[undoStack.length - 1]);
+                    setRedoStack(prev => [...prev, JSON.stringify({ events, nodes, choices })]);
+                    setUndoStack(prev => prev.slice(0, -1));
+                    setEvents(prevSnapshot.events); setNodes(prevSnapshot.nodes); setChoices(prevSnapshot.choices);
+                    showToast("Undo Successful");
+                }, [undoStack, events, nodes, choices, showToast]);
+    
+                /**
+                 * @function performRedo
+                 * @description Reapplies the application state from the redo stack.
+                 * The current state is moved to the undo stack.
+                 */
+                const performRedo = useCallback(() => {
+                    if (redoStack.length === 0) return;
+                    const nextSnapshot = JSON.parse(redoStack[redoStack.length - 1]);
+                    setUndoStack(prev => [...prev, JSON.stringify({ events, nodes, choices })]);
+                    setRedoStack(prev => prev.slice(0, -1));
+                    setEvents(nextSnapshot.events); setNodes(nextSnapshot.nodes); setChoices(nextSnapshot.choices);
+                    showToast("Redo Successful");
+                }, [redoStack, events, nodes, choices, showToast]);
+                /**
+                 * @function downloadJSON
+                 * @description Exports the current events, nodes, and choices data as a JSON file.
+                 * The file is named `DS_Events_YYYY-MM-DD.json`.
+                 */
+                const downloadJSON = useCallback(() => {        const dateStr = new Date().toISOString().slice(0,10);
+        const data = { 
+            "Event시트": events, 
+            "Node시트": nodes.map(({ depth, ...rest }) => rest), 
+            "Choice시트": choices.map(c => {
+                const actionStr = (c.OnSelectAction || "").replace(/
+/g, ',');
+                let tType = c.ActiveTooltipType;
+                if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
+                    tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
+                }
+                return { 
+                    ChoiceID: c.ChoiceID, DevComment: c.DevComment, LinkedNodeID: c.LinkedNodeID,
+                    ActiveCondition: c.ActiveCondition, OnSelectAction: actionStr, ActiveTooltipType: tType
+                };
+            }) 
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a'); link.href = url; link.download = `DS_Events_${dateStr}.json`;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        showToast("JSON Exported");
+    }, [events, nodes, choices, showToast]);
+
+                // --- Shortcut Effect ---
+                useEffect(() => {
+                    const handleKeyDown = (e) => {
+                        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                        const cmdCtrl = isMac ? e.metaKey : e.ctrlKey;
+    
+                        if (cmdCtrl) {
+                            if (e.key.toLowerCase() === 'z') {
+                                if (e.shiftKey) performRedo();
+                                else performUndo();
+                                e.preventDefault();
+                            } else if (e.key.toLowerCase() === 'y') {
+                                performRedo();
+                                e.preventDefault();
+                            } else if (e.key.toLowerCase() === 's') {
+                                downloadJSON();
+                                e.preventDefault();
+                            }
+                        }
+                    };
+                    window.addEventListener('keydown', handleKeyDown);
+                    return () => window.removeEventListener('keydown', handleKeyDown);
+                }, [performUndo, performRedo, downloadJSON]);
+    
+                // --- Firebase Sync ---
+                /**
+                 * @hook useEffect
+                 * @description Initializes Firebase authentication (anonymous or custom token) and sets up
+                 * an observer for authentication state changes. Only runs if cloud features are available.
+                 */
+                useEffect(() => {
+                    if (!isCloudAvailable) { isInitialLoaded.current = true; return; }
+                    const initAuth = async () => {
+                        try {
+                            if (initialAuthToken) await auth.signInWithCustomToken(initialAuthToken);
+                            else await auth.signInAnonymously();
+                        } catch (e) { setCloudStatus("error"); }
+                    };
+                    initAuth();
+                    const unsub = auth.onAuthStateChanged(setUser);
+                    return () => unsub();
+                }, []);
+                /**
+                 * @hook useEffect
+                 * @description Loads initial project data (events, nodes, choices) from Firebase Firestore
+                 * when the user state changes and cloud features are available. Sets cloud status and shows a toast.
+                 */
+                useEffect(() => {
+                    if (!user || !isCloudAvailable) return;
+                    db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main').get().then(doc => {
+                        if (doc.exists) {
+                            const data = doc.data();
+                            setEvents(data.events || []); setNodes(data.nodes || []); setChoices(data.choices || []);
+                            if (data.events?.length > 0) setSelectedEventId(data.events[0].EventID);
+                            showToast("Cloud sync loaded.");
+                        }
+                        isInitialLoaded.current = true; setCloudStatus("saved");
+                    }).catch(() => { setCloudStatus("error"); isInitialLoaded.current = true; });
+                }, [user, showToast]);
+                /**
+                 * @hook useEffect
+                 * @description Periodically saves the current application state (events, nodes, choices)
+                 * to Firebase Firestore. This acts as an auto-save mechanism, triggered by changes
+                 * in event, node, or choice data.
+                 */
+                useEffect(() => {
+                    if (!user || !isCloudAvailable || !isInitialLoaded.current || events.length === 0) return;
+                    const timer = setTimeout(async () => {
+                        setCloudStatus("syncing");
+                        try {
+                            await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main').set({
+                                events, nodes, choices, lastUpdated: new Date()
+                            });
+                            setCloudStatus("saved");
+                        } catch (e) { setCloudStatus("error"); }
+                    }, 3000);
+                    return () => clearTimeout(timer);
+                }, [events, nodes, choices, user]);
+                // --- Helper / CRUD ---
+                /**
+                 * @function getSmallestAvailableNodeIndex
+                 * @description Finds the smallest available numerical index for a new node within a specific depth.
+                 * Ensures unique node IDs within its depth level (0-9).
+                 * @param {number} depth - The depth level for which to find an available index.
+                 * @returns {number|null} The smallest available index, or null if no index is available.
+                 */
+                const getSmallestAvailableNodeIndex = (depth) => {
+                    const existingIndices = nodes
+                        .filter(n => n.LinkedEventID === selectedEventId && n.depth === depth)
+                        .map(n => parseInt(n.NodeID.slice(-1)));
+                    for (let i = 0; i < 10; i++) { if (!existingIndices.includes(i)) return i; }
+                    return null;
+                };
+                /**
+                 * @function getSmallestAvailableChoiceIndex
+                 * @description Finds the smallest available numerical index for a new choice within a specific node.
+                 * Ensures unique choice IDs within its linked node (0-2).
+                 * @param {string} nodeId - The ID of the node for which to find an available choice index.
+                 * @returns {number|null} The smallest available index, or null if no index is available.
+                 */
+                const getSmallestAvailableChoiceIndex = (nodeId) => {
+                    const existingIndices = choices.filter(c => c.LinkedNodeID === nodeId).map(c => parseInt(c.ChoiceID.slice(-1)));
+                    for (let i = 0; i < 3; i++) { if (!existingIndices.includes(i)) return i; }
+                    return null;
+                };
+                /**
+                 * @function createEvent
+                 * @description Creates a new event of a specified type and an initial start node.
+                 * Records the action in history and sets the newly created event as selected.
+                 * @param {string} type - The type of event to create (e.g., "Fixed", "Random").
+                 */
+                const createEvent = (type) => {
+                    recordHistory();
+                    const count = events.filter(e => e.EventType === type).length;
+                    const id = `Event_${type}${count}`;
+                    const startId = `Node${getEventSummary(id)}00`;
+                    setEvents(prev => [...prev, { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 }]);
+                    setNodes(prev => [...prev, { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [], depth: 0 }]);
+                    setSelectedEventId(id); setSelectedElement({ type: 'event', id });
+                };
+                /**
+                 * @function createNode
+                 * @description Creates a new node within the currently selected event at a specified depth.
+                 * Ensures depth limits and unique node IDs. Records the action in history.
+                 * @param {number} depth - The depth level at which to create the new node.
+                 */
+                const createNode = (depth) => {
+                    if (!selectedEventId || depth > 9) return;
+                    const currentDepthCount = nodes.filter(n => n.LinkedEventID === selectedEventId && n.depth === depth).length;
+                    if (currentDepthCount >= 10) { showToast("Depth limit (10) reached."); return; }
+                    recordHistory();
+                    const idx = getSmallestAvailableNodeIndex(depth);
+                    const nid = `Node${getEventSummary(selectedEventId)}${depth}${idx}`;
+                    setNodes(prev => [...prev, { NodeID: nid, DevComment: "지문 내용을 입력하세요.", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [], depth }]);
+                    setSelectedElement({ type: 'node', id: nid });
+                };
+                /**
+                 * @function createChoice
+                 * @description Creates a new choice linked to a specific node.
+                 * Ensures choice limits per node and records the action in history.
+                 * @param {string} nodeId - The ID of the node to which the new choice will be linked.
+                 */
+                const createChoice = (nodeId) => {
+                    const node = nodes.find(n => n.NodeID === nodeId);
+                    if (!node || node.ChoiceIDs.length >= 3) return;
+                    recordHistory();
+                    const idx = getSmallestAvailableChoiceIndex(nodeId);
+                    const cid = `Choice${getEventSummary(selectedEventId)}${nodeId.slice(-2)}${idx}`;
+                    setChoices(prev => [...prev, { ChoiceID: cid, DevComment: "새 선택지", LinkedNodeID: nodeId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" }]);
+                    setNodes(prev => prev.map(n => n.NodeID === nodeId ? { ...n, ChoiceIDs: [...n.ChoiceIDs, cid] } : n));
+                    setSelectedElement({ type: 'choice', id: cid });
+                };
+                // --- Interaction Logic ---
+                /**
+                 * @function onChoiceDragStart
+                 * @description Handles the start of a drag operation for a choice element.
+                 * Sets the `draggingChoiceId` state to track the dragged choice.
+                 * @param {DragEvent} e - The drag event object.
+                 * @param {string} choiceId - The ID of the choice being dragged.
+                 */
+                const onChoiceDragStart = (e, choiceId) => { setDraggingChoiceId(choiceId); e.dataTransfer.setData("choiceId", choiceId); };
+            /**
+             * @function onNodeDragOver
+             * @description Handles the drag over event for a node element.
+             * Prevents default to allow dropping and sets the `dropTargetId` if the node is a valid target.
+             * A node is a valid target if its depth is greater than the dragged choice's linked node's depth.
+             * @param {DragEvent} e - The drag event object.
+             * @param {string} nodeId - The ID of the node being dragged over.
+             */
+            const onNodeDragOver = (e, nodeId) => { e.preventDefault(); const c = choices.find(x => x.ChoiceID === draggingChoiceId); if (c && nodes.find(n => n.NodeID === nodeId).depth > nodes.find(n => n.NodeID === c.LinkedNodeID).depth) setDropTargetId(nodeId); };
+            /**
+             * @function onNodeDrop
+             * @description Handles the drop event when a choice is dropped onto a node.
+             * Updates the `OnSelectAction` of the dropped choice to link to the target node.
+             * @param {DragEvent} e - The drag event object.
+             * @param {string} targetNodeId - The ID of the node onto which the choice was dropped.
+             */
+            const onNodeDrop = (e, targetNodeId) => {
+        e.preventDefault(); const cid = draggingChoiceId; const c = choices.find(x => x.ChoiceID === cid);
+        if (c && nodes.find(n => n.NodeID === targetNodeId).depth > nodes.find(n => n.NodeID === c.LinkedNodeID).depth) {
+            recordHistory();
+            const acts = (c.OnSelectAction || "").split('
+').filter(a => a.trim() !== "");
+            if (!acts.some(a => a.includes(targetNodeId))) {
+                const updatedAction = [...acts, `ShowNextNode_${targetNodeId}_100`].join('
+');
+                setChoices(prev => prev.map(x => x.ChoiceID === cid ? { ...x, OnSelectAction: updatedAction } : x));
+            }
+        }
+        setDraggingChoiceId(null); setDropTargetId(null);
+    };
+
+            /**
+             * @function onChoiceDrop
+             * @description Handles the drop event when a choice is dropped onto another choice.
+             * Establishes a relationship between the two choices based on depth and updates tooltip data.
+             * @param {DragEvent} e - The drag event object.
+             * @param {string} targetChoiceId - The ID of the choice onto which the other choice was dropped.
+             */
+            const onChoiceDrop = (e, targetChoiceId) => {
+        e.stopPropagation(); e.preventDefault();
+        const dragId = draggingChoiceId; const tC = choices.find(x => x.ChoiceID === targetChoiceId); const dC = choices.find(x => x.ChoiceID === dragId);
+        if (!tC || !dC || dragId === targetChoiceId) { setDraggingChoiceId(null); setDropTargetId(null); return; }
+        const depthS = nodes.find(n => n.NodeID === dC.LinkedNodeID).depth;
+        const depthT = nodes.find(n => n.NodeID === tC.LinkedNodeID).depth;
+        let src, tar;
+        if (depthS < depthT) { src = dC; tar = tC; } else if (depthT < depthS) { src = tC; tar = dC; } else { showToast("Depth mismatch."); setDraggingChoiceId(null); return; }
+
+        recordHistory();
+        setChoices(prev => prev.map(c => {
+            if (c.ChoiceID === src.ChoiceID) {
+                let newType = c.ActiveTooltipType === "None" ? "ShowChoiceAction" : c.ActiveTooltipType;
+                let newVal = c.ActiveTooltipValue;
+                if (newType === "Probability") {
+                    const list = newVal ? newVal.split(',').filter(id => id.trim() !== "") : [];
+                    if (list.includes(tar.ChoiceID)) { showToast("Already registered."); return c; }
+                    newVal = [...list, tar.ChoiceID].join(',');
+                } else { newVal = tar.ChoiceID; }
+                return { ...c, ActiveTooltipType: newType, ActiveTooltipValue: newVal };
+            }
+            return c;
+        }));
+        setDraggingChoiceId(null); setDropTargetId(null);
+    };
+
+            /**
+             * @function handleChoiceHover
+             * @description Displays a tooltip with detailed information about a choice when hovered over.
+             * The content of the tooltip varies based on the `ActiveTooltipType` of the choice.
+             * @param {MouseEvent} e - The mouse event object.
+             * @param {object} choice - The choice object being hovered over.
+             */
+                                /**
+                                 * @function handleChoiceHover
+                                 * @description Displays a tooltip with detailed information about a choice when hovered over.
+                                 * The content of the tooltip varies based on the `ActiveTooltipType` of the choice.
+                                 * @param {MouseEvent} e - The mouse event object.
+                                 * @param {object} choice - The choice object being hovered over.
+                                 */
+                                const handleChoiceHover = useCallback((e, choice) => {        if (draggingChoiceId || editingChoiceCommentId) return;
+        let content = "";
+        if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "No actions.";
+        else if (choice.ActiveTooltipType === "ShowChoiceAction" && choice.ActiveTooltipValue) {
+            content = choices.find(c => c.ChoiceID === choice.ActiveTooltipValue)?.OnSelectAction || "Ref Error";
+        } else if (choice.ActiveTooltipType === "Probability" && choice.ActiveTooltipValue) {
+            const tIds = choice.ActiveTooltipValue.split(',');
+            const acts = (choice.OnSelectAction || "").split('
+');
+            let totalW = 0; const weightMap = {};
+            acts.forEach(a => { const m = a.match(/ShowNextNode_([Nodea-zA-Z0-9]+)_(\d+)/); if (m) { totalW += parseInt(m[2]); weightMap[m[1]] = parseInt(m[2]); } });
+            content = tIds.map(tid => {
+                const tc = choices.find(c => c.ChoiceID === tid);
+                if (!tc) return null;
+                const w = weightMap[tc.LinkedNodeID] || 0;
+                const p = totalW > 0 ? Math.round((w / totalW) * 100) : 0;
+                return `(${p}%) ${tc.OnSelectAction || 'None'}`;
+            }).filter(r => r).join('
+');
+        }
+        if (content) setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
+    }, [draggingChoiceId, editingChoiceCommentId, choices]);
+
+            /**
+             * @function saveWeightEdit
+             * @description Saves the edited weight for a specific action within a choice.
+             * Updates the `OnSelectAction` string of the choice to reflect the new weight.
+             */
+            /**
+             * @function saveWeightEdit
+             * @description Saves the edited weight for a specific action within a choice.
+             * Updates the `OnSelectAction` string of the choice to reflect the new weight.
+             */
+            /**
+             * @function saveWeightEdit
+             * @description Saves the edited weight for a specific action within a choice.
+             * Updates the `OnSelectAction` string of the choice to reflect the new weight.
+             */
+            /**
+             * @function saveWeightEdit
+             * @description Saves the edited weight for a specific action within a choice.
+             * Updates the `OnSelectAction` string of the choice to reflect the new weight.
+             */
+            const saveWeightEdit = () => {
+        if (!editingWeightData) return;
+        recordHistory();
+        const { choiceId, actionIndex } = editingWeightData;
+        const newW = parseInt(tempValue) || 0;
+        setChoices(prev => prev.map(c => {
+            if (c.ChoiceID === choiceId) {
+                const acts = (c.OnSelectAction || "").split('
+');
+                const updated = acts.map((act, idx) => idx === actionIndex ? act.replace(/(ShowNextNode_[A-Za-z0-9]+)(_\d+)?$/, (m, p1) => `${p1}_${newW}`) : act);
+                return { ...c, OnSelectAction: updated.join('
+') };
+            }
+            return c;
+        }));
+        setEditingWeightData(null);
+    };
+
+            /**
+             * @function updateTooltipType
+             * @description Updates the tooltip type for a specific choice and records the change in history.
+             * Closes the context menu after the update.
+             * @param {string} choiceId - The ID of the choice to update.
+             * @param {string} type - The new tooltip type (e.g., "ShowAction", "ShowChoiceAction", "Probability", "None").
+             */
+            /**
+             * @function updateTooltipType
+             * @description Updates the tooltip type for a specific choice and records the change in history.
+             * Closes the context menu after the update.
+             * @param {string} choiceId - The ID of the choice to update.
+             * @param {string} type - The new tooltip type (e.g., "ShowAction", "ShowChoiceAction", "Probability", "None").
+             */
+            const updateTooltipType = (choiceId, type) => { recordHistory(); setChoices(choices.map(c => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c)); setCtxMenu({ show: false }); };
+
+            /**
+             * @function executeDelete
+             * @description Deletes an event, node, or choice based on the provided type and ID.
+             * Handles cascading deletions (e.g., deleting an event deletes its nodes and choices).
+             * Records the action in history.
+             */
+            const executeDelete = () => {
+        const { type, id } = deleteModal.show ? deleteModal : { type: ctxMenu.type, id: ctxMenu.id };
+        if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) return;
+        recordHistory();
+        if (type === 'event') {
+            const rem = events.filter(e => e.EventID !== id);
+            setEvents(rem); setNodes(nodes.filter(n => n.LinkedEventID !== id)); setChoices(choices.filter(c => !nodes.find(n => n.NodeID === c.LinkedNodeID && n.LinkedEventID === id)));
+            if (selectedEventId === id) setSelectedEventId(rem[0]?.EventID || "");
+        } else if (type === 'node') {
+            setNodes(nodes.filter(n => n.NodeID !== id)); setChoices(choices.filter(c => c.LinkedNodeID !== id));
+        } else if (type === 'choice') {
+            const cToDelete = choices.find(c => c.ChoiceID === id);
+            setChoices(choices.filter(c => c.ChoiceID !== id));
+            if (cToDelete) setNodes(nodes.map(n => n.NodeID === cToDelete.LinkedNodeID ? { ...n, ChoiceIDs: n.ChoiceIDs.filter(cid => cid !== id) } : n));
+        }
+        setDeleteModal({ show: false }); setCtxMenu({ show: false }); setSelectedElement(null);
+    };
+
+            /**
+             * @function handleContextMenu
+             * @description Handles the context menu (right-click) event for various elements.
+             * Prevents default browser context menu and displays a custom context menu.
+             * @param {MouseEvent} e - The mouse event object.
+             * @param {string} type - The type of the element (e.g., "node", "choice").
+             * @param {string} id - The ID of the element.
+             */
+            const handleContextMenu = (e, type, id) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ show: true, x: e.clientX, y: e.clientY, type, id }); };
+
+            /**
+             * @hook useMemo
+             * @description Memoizes nodes grouped by their depth for efficient rendering and organization.
+             * Nodes are filtered by the selected event and sorted alphabetically by NodeID within each depth group.
+             */
+            const nodesByDepthMemo = useMemo(() => {
+        const group = {};
+        nodes.filter(n => n.LinkedEventID === selectedEventId).forEach(n => {
+            if (!group[n.depth]) group[n.depth] = [];
+            group[n.depth].push(n);
+        });
+        Object.keys(group).forEach(d => group[d].sort((a,b) => a.NodeID.localeCompare(b.NodeID)));
+        return group;
+    }, [nodes, selectedEventId]);
+
+            /**
+             * @hook useMemo
+             * @description Memoizes the maximum depth level among the nodes of the currently selected event.
+             * Returns -1 if no nodes are present.
+             */
+            const maxDepthMemo = useMemo(() => {
+        const depths = nodes.filter(n => n.LinkedEventID === selectedEventId).map(n => n.depth);
+        return depths.length > 0 ? Math.max(...depths) : -1;
+    }, [nodes, selectedEventId]);
+
+    // --- Render Logic ---
+    const [lines, setLines] = useState([]);
+            /**
+             * @function updateLines
+             * @description A useCallback hook that calculates the SVG path data for drawing lines
+             * between choices and their target nodes based on `ShowNextNode` actions.
+             * It updates the `lines` state, which is used to render the connection lines on the canvas.
+             */
+            const updateLines = useCallback(() => {
+        const res = [];
+        choices.forEach(choice => {
+            const nodeOfChoice = nodes.find(n => n.NodeID === choice.LinkedNodeID);
+            if (!nodeOfChoice || nodeOfChoice.LinkedEventID !== selectedEventId) return;
+            const acts = (choice.OnSelectAction || "").split('
+');
+            acts.forEach((act, idx) => {
+                const m = act.match(/ShowNextNode_([Nodea-zA-Z0-9]+)_?(\d+)?/);
+                if (m) {
+                    const targetId = m[1], w = m[2] || "100";
+                    const startEl = elementRefs.current[choice.ChoiceID], endEl = elementRefs.current[targetId];
+                    if (startEl && endEl && canvasRef.current) {
+                        const rectC = canvasRef.current.getBoundingClientRect();
+                        const rectS = startEl.getBoundingClientRect(), rectE = endEl.getBoundingClientRect();
+                        const x1 = rectS.right - rectC.left, y1 = rectS.top + rectS.height/2 - rectC.top;
+                        const x2 = rectE.left - rectC.left, y2 = rectE.top + rectE.height/2 - rectC.top;
+                        res.push({ id: `${choice.ChoiceID}-${targetId}-${idx}`, choiceId: choice.ChoiceID, actionIndex: idx, d: `M ${x1} ${y1} C ${x1 + (x2-x1)/2} ${y1}, ${x1 + (x2-x1)/2} ${y2}, ${x2} ${y2}`, weight: w, lx: (x1+x2)/2, ly: (y1+y2)/2 - 8 });
+                    }
+                }
+            });
+        });
+        setLines(res);
+    }, [choices, nodes, selectedEventId]);
+
+            /**
+             * @hook useEffect
+             * @description This effect handles the dynamic rendering of connection lines and manages the context menu.
+             * It adds a global click listener to close the context menu.
+             * It calls `updateLines` to draw connections and uses a ResizeObserver to redraw lines
+             * when the canvas size changes, ensuring connections remain accurate.
+             */
+            useEffect(() => { 
+        const closeCtx = () => { if(ctxMenu.show) setCtxMenu({ show: false }); };
+        window.addEventListener('click', closeCtx);
+        updateLines(); 
+        const obs = new ResizeObserver(() => updateLines()); 
+        if (canvasRef.current) obs.observe(canvasRef.current); 
+        return () => {
+            window.removeEventListener('click', closeCtx);
+            obs.disconnect(); 
+        };
+    }, [updateLines, ctxMenu.show]);
+
+            /**
+             * @function handleImport
+             * @description Handles the JSON data import process.
+             * Parses the JSON string from the import modal, validates the structure,
+             * transforms the data into the application's state format, and updates the state.
+             */
+            const handleImport = () => {
+        try {
+            const data = JSON.parse(importText); recordHistory();
+            const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
+            const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+            const pC = cS.map(c => {
+                const uiAct = (c.OnSelectAction || "").replace(/,/g, '
+');
+                let tT = "None", tV = "";
+                if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
+                else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
+                else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
+                return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
+            });
+            setEvents(eS); setNodes(pN); setChoices(pC);
+            if (eS.length > 0) setSelectedEventId(eS[0].EventID);
+            setShowImportModal(false); setImportText(""); showToast("Import Success");
+        } catch (e) { alert("Import Failed"); }
+    };
+
+    return (
+        <div className="flex h-screen overflow-hidden select-none font-sans text-gray-800">
+            {toast.show && <div className="toast"><Icon name="Info" size={18} /> {toast.message}</div>}
+            {tooltip.show && <div className="tooltip bg-black/90 text-white text-[11px] px-3 py-2 rounded-xl shadow-2xl font-mono whitespace-pre-wrap max-w-xs animate-fadeIn border border-white/10" style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}>{tooltip.content}</div>}
+            
+            <div className={`cloud-indicator ${cloudStatus === 'saved' ? 'text-green-600 bg-green-50' : (cloudStatus === 'syncing' ? 'text-blue-600 bg-blue-50' : (cloudStatus === 'offline' ? 'text-gray-400 bg-gray-100' : 'text-red-600 bg-red-50'))}`}>
+                <Icon name="Cloud" size={12} className={cloudStatus === 'syncing' ? 'animate-bounce' : ''} /> {cloudStatus.toUpperCase()}
+            </div>
+
+            {ctxMenu.show && (
+                <div className="ctx-menu animate-fadeIn shadow-2xl" style={{ left: ctxMenu.x, top: ctxMenu.y }} onClick={(e) => e.stopPropagation()}>
+                    {!(ctxMenu.type === 'node' && nodes.find(n => n.NodeID === ctxMenu.id)?.depth === 0) && (
+                        <button onClick={executeDelete} className="ctx-item danger transition-colors"><Icon name="Trash2" size={14} /> Delete</button>
+                    )}
+                    {ctxMenu.type === 'choice' && (
+                        <>
+                            <div className="ctx-divider" />
+                            <button onClick={() => updateTooltipType(ctxMenu.id, 'ShowAction')} className="ctx-item">ToolTip : Self</button>
+                            <button onClick={() => updateTooltipType(ctxMenu.id, 'ShowChoiceAction')} className="ctx-item">ToolTip : Choice</button>
+                            <button onClick={() => updateTooltipType(ctxMenu.id, 'Probability')} className="ctx-item">ToolTip : Probability</button>
+                            <button onClick={() => updateTooltipType(ctxMenu.id, 'None')} className="ctx-item opacity-50">ToolTip : None</button>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {editingWeightData && (
+                <div className="weight-input-box animate-fadeIn shadow-2xl" style={{ left: editingWeightData.x, top: editingWeightData.y }}>
+                    <div className="text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1 text-center font-bold">Set Weight</div>
+                    <input autoFocus type="number" className="w-20 border-b-2 border-blue-200 outline-none text-sm font-bold text-center p-1" value={tempValue} onChange={(e) => setTempValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveWeightEdit(); else if (e.key === 'Escape') setEditingWeightData(null); }} onBlur={saveWeightEdit} />
+                </div>
+            )}
+
+            <aside className="w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30">
+                <div className="p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm">Visual Editor v3.0.4</div>
+                <div className="flex-1 overflow-y-auto p-3 space-y-5 font-bold">
+                    {['Fixed', 'Random'].map(type => (
+                        <div key={type}>
+                            <div className="text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold">{type} Events</div>
+                            {events.filter(e => e.EventType === type).map(ev => (
+                                <div key={ev.EventID} className="group relative mb-1.5 font-bold">
+                                    <button onClick={() => { setSelectedEventId(ev.EventID); setSelectedElement({ type: 'event', id: ev.EventID }); }}
+                                        className={`w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-400 font-bold' : 'hover:bg-gray-100 font-bold'}`}>
+                                        <div className="text-xs truncate font-bold">{ev.EventID}</div>
+                                        <div className="text-[10px] truncate opacity-60 font-medium">{ev.DevComment}</div>
+                                    </button>
+                                    <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'event', id: ev.EventID }); }}
+                                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 transition-all ${selectedEventId === ev.EventID ? 'text-white' : 'text-gray-300 hover:text-red-500'}`}><Icon name="Trash2" size={14} /></button>
+                                </div>
+                            ))}
+                            <button onClick={() => createEvent(type)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-[10px] text-gray-400 hover:border-blue-300 hover:text-blue-500 font-bold uppercase mt-2 shadow-sm">+ {type}</button>
+                        </div>
+                    ))}
+                </div>
+                <div className="p-5 bg-gray-50 border-t space-y-2.5 font-bold">
+                    <div className="flex gap-2 font-bold">
+                        <button onClick={performUndo} disabled={undoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 uppercase transition-all shadow-sm font-bold">Undo</button>
+                        <button onClick={performRedo} disabled={redoStack.length === 0} className="flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 uppercase transition-all shadow-sm font-bold">Redo</button>
+                    </div>
+                    <button onClick={() => setShowImportModal(true)} className="w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-gray-100 uppercase transition-all shadow-sm font-bold transition-all"><Icon name="Upload" size={14} /> Import</button>
+                    <button onClick={downloadJSON} className="w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black transition-colors uppercase tracking-widest shadow-lg font-bold transition-all"><Icon name="Download" size={14} /> Export</button>
+                </div>
+            </aside>
+
+            <main className="flex-1 flex flex-col min-w-0 bg-gray-50 relative overflow-hidden">
+                <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0 z-20 shadow-sm font-bold">
+                    <div className="flex items-center gap-3 font-black text-gray-700 tracking-tight">{selectedEventId || "SELECT EVENT"}{selectedEventId && <span className="text-[10px] bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-mono uppercase ml-2 tracking-tighter shadow-sm font-bold">{events.find(e=>e.EventID === selectedEventId)?.EventType}</span>}</div>
+                    <button onClick={() => createNode(maxDepthMemo + 1)} disabled={!selectedEventId || maxDepthMemo >= 9} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 hover:bg-blue-700 disabled:opacity-30 shadow-xl transition-all font-bold uppercase tracking-widest font-bold"><Icon name="Plus" size={14} /> {maxDepthMemo >= 9 ? 'MAX COLUMNS' : 'NEW DEPTH COLUMN'}</button>
+                </header>
+
+                <div className="flex-1 overflow-auto pattern-grid relative" onScroll={() => updateLines()}>
+                    <div className="canvas-container p-16 flex gap-20 items-start font-bold" ref={canvasRef}>
+                        <svg className="connection-layer">
+                            {lines.map(line => (
+                                <g key={line.id} onDoubleClick={(e) => { e.stopPropagation(); setEditingWeightData({ choiceId: line.choiceId, actionIndex: line.actionIndex, x: e.clientX, y: e.clientY }); setTempValue(line.weight); }}>
+                                    <path d={line.d} fill="none" stroke="transparent" strokeWidth="16" className="connection-hit-area" />
+                                    <path d={line.d} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeOpacity="0.2" strokeLinecap="round" className="hover:stroke-opacity-100 transition-all pointer-events-none" />
+                                    {line.weight !== "100" && <text x={0} y={0} className="connection-label" style={{ transform: `translate(${line.lx}px, ${line.ly}px)` }}>{line.weight}</text>}
+                                </g>
+                            ))}
+                        </svg>
+
+                        {Array.from({ length: maxDepthMemo + 1 }).map((_, dIdx) => (
+                            <div key={dIdx} className="flex flex-col gap-10 w-72 shrink-0">
+                                <div className="text-center px-4 font-bold text-[11px] text-gray-400 uppercase tracking-[0.3em] mb-4">Depth {dIdx}</div>
+                                {dIdx > 0 && <button onClick={() => createNode(dIdx)} disabled={nodesByDepthMemo[dIdx]?.length >= 10} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] text-gray-400 hover:bg-white hover:border-blue-400 hover:text-blue-500 transition-all font-black uppercase tracking-widest shadow-sm disabled:opacity-30 font-bold">ADD NODE</button>}
+                                {nodesByDepthMemo[dIdx]?.map(node => (
+                                    <div key={node.NodeID} ref={el => elementRefs.current[node.NodeID] = el}
+                                        onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'node', id: node.NodeID }); }}
+                                        onContextMenu={(e) => handleContextMenu(e, 'node', node.NodeID)}
+                                        onDragOver={(e) => onNodeDragOver(e, node.NodeID)} onDrop={(e) => onNodeDrop(e, node.NodeID)}
+                                        className={`node-card bg-white rounded-3xl shadow-sm border-2 overflow-hidden transition-all relative ${selectedElement?.id === node.NodeID ? 'border-blue-500 ring-4 ring-blue-50 scale-105 shadow-2xl' : 'border-gray-100 hover:border-gray-200'} ${dropTargetId === node.NodeID ? 'drop-target-active' : ''}`}>
+                                        <div className="bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight text-[10px] font-mono text-gray-400">{node.NodeID} <span className="text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter">{node.NodeType}</span></div>
+                                        <div className="p-5 font-bold">
+                                            {editingNodeCommentId === node.NodeID ? (
+                                                <textarea autoFocus className="w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold" value={tempValue} onChange={(e) => setTempValue(e.target.value)} onBlur={() => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNodeCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) e.currentTarget.blur(); else if (e.key === 'Escape') setEditingNodeCommentId(null); }} />
+                                            ) : (
+                                                <p onDoubleClick={(e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }} className="text-[13px] text-gray-700 mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words whitespace-pre-wrap font-medium font-bold">"{node.DevComment}"</p>
+                                            )}
+                                            <div className="space-y-2">
+                                                {node.ChoiceIDs.map(cid => {
+                                                    const c = choices.find(x => x.ChoiceID === cid); if(!c) return null;
+                                                    const isEd = editingChoiceCommentId === cid;
+                                                    return (
+                                                        <div key={cid} ref={el => elementRefs.current[cid] = el}
+                                                            draggable={!isEd} onDragStart={(e) => onChoiceDragStart(e, cid)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onChoiceDrop(e, cid)} onMouseEnter={(e) => !isEd && handleChoiceHover(e, c)} onMouseLeave={() => { setTooltip({ ...tooltip, show: false }); }} onContextMenu={(e) => handleContextMenu(e, 'choice', cid)} onClick={(e) => { e.stopPropagation(); setSelectedElement({ type: 'choice', id: cid }); }}
+                                                            className={`p-2.5 border rounded-2xl text-[11px] flex justify-between items-center transition-all cursor-grab active:cursor-grabbing ${isEd ? 'ring-2 ring-blue-500 bg-white shadow-lg' : (selectedElement?.id === cid ? 'bg-orange-50 border-orange-400 text-orange-800 font-bold shadow-md' : 'bg-white border-gray-100 hover:bg-gray-50 font-bold')}`}>
+                                                            <div className="flex items-center gap-2 overflow-hidden flex-1 font-bold truncate">
+                                                                {!isEd && <Icon name="MousePointer" size={10} className={`${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0`} />}
+                                                                {isEd ? (
+                                                                    <input autoFocus className="w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold" value={tempValue} onChange={(e) => setTempValue(e.target.value)} onBlur={() => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); }} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); }} />
+                                                                ) : (
+                                                                    <span className="flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors" onDoubleClick={(e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempValue(c.DevComment); }}>{c.DevComment}</span>
+                                                                )}
+                                                            </div>
+                                                            {!isEd && <div className="flex gap-1.5 ml-2 shrink-0">{c.ActiveTooltipType !== "None" && <Icon name="Info" size={11} className={c.ActiveTooltipType === "Probability" ? "text-blue-500" : "text-purple-400"} />}<Icon name="ArrowRight" size={11} className={c.OnSelectAction ? "text-blue-500" : "text-gray-200"} /></div>}
+                                                        </div>
+                                                    );
+                                                })}
+                                                {node.ChoiceIDs.length < 3 && <button onClick={(e) => { e.stopPropagation(); createChoice(node.NodeID); }} className="w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] font-black text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold font-bold">Add Choice</button>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </main>
+
+            {selectedElement && viewMode === 'editor' && (
+                <aside className="w-80 bg-white border-l p-6 shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200 font-bold font-bold">
+                    <div className="flex justify-between items-center mb-8 font-black text-[11px] text-gray-400 tracking-[0.4em] uppercase">{selectedElement.type} PROPERTIES {!(selectedElement.type === 'node' && nodes.find(n => n.NodeID === selectedElement.id)?.depth === 0) && (<button onClick={() => setDeleteModal({ show: true, type: selectedElement.type, id: selectedElement.id })} className="text-gray-300 hover:text-red-500 transition-all transition-all"><Icon name="Trash2" size={20} /></button>)}</div>
+                    <div className="space-y-8 font-bold font-bold font-bold font-bold font-bold">
+                        {selectedElement.type === 'event' && (() => {
+                            const ev = events.find(e => e.EventID === selectedElement.id); if (!ev) return null;
+                            return (
+                                <div className="space-y-4 animate-fadeIn">
+                                    <PropField label="Event ID" value={ev.EventID} readOnly />
+                                    <PropField label="Dev Comment" value={ev.DevComment} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, DevComment: v} : e)); }} type="textarea" />
+                                    <div className="grid grid-cols-2 gap-3"><PropField label="Weight" value={ev.Weight} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }} type="number" /><PropField label="CoolDown" value={ev.CoolDown} onChange={v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }} type="number" /></div>
+                                    <div className="flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold"><input type="checkbox" checked={ev.IsRepeatable} onChange={e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }} className="w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" /><label className="text-[11px] font-black text-gray-500 uppercase tracking-tighter">Is Repeatable</label></div>
+                                </div>
+                            )
+                        })()}
+                        {selectedElement.type === 'node' && (() => {
+                            const node = nodes.find(n => n.NodeID === selectedElement.id); if (!node) return null;
+                            return (<div className="space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold"><PropField label="Node ID" value={node.NodeID} readOnly /><PropField label="Type" value={node.NodeType} onChange={v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: v} : n)); }} type="select" options={["Normal", "Reward", "Combat", "End"]} /><PropField label="Dev Comment" value={node.DevComment} onChange={v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: v} : n)); }} type="textarea" /></div>)
+                        })()}
+                        {selectedElement.type === 'choice' && (() => {
+                            const c = choices.find(x => x.ChoiceID === selectedElement.id); if (!c) return null;
+                            return (
+                                <div className="space-y-5 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold">
+                                    <PropField label="Choice ID" value={c.ChoiceID} readOnly /><PropField label="Dev Comment" value={c.DevComment} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, DevComment: v} : x)); }} type="textarea" /><PropField label="Actions" value={c.OnSelectAction} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, OnSelectAction: v} : x)); }} type="textarea" placeholder="ShowNextNode_NodeF010_100" /><PropField label="Condition" value={c.ActiveCondition} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveCondition: v} : x)); }} /><PropField label="Tooltip Type" value={c.ActiveTooltipType} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipType: v} : x)); }} type="select" options={["None", "ShowAction", "ShowChoiceAction", "Probability"]} /><PropField label="Tooltip Value" value={c.ActiveTooltipValue || ""} onChange={v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipValue: v} : x)); }} />
+                                </div>
+                            )
+                        })()}
+                    </div>
+                </aside>
+            )}
+
+            {showImportModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[20000] flex items-center justify-center p-8 animate-fadeIn font-bold">
+                    <div className="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
+                        <div className="p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest shadow-sm font-bold font-bold font-bold font-bold font-bold font-bold">Import JSON Data<button onClick={() => setShowImportModal(false)} className="hover:rotate-90 transition-transform"><Icon name="Plus" size={32} className="rotate-45 text-gray-400 font-bold" /></button></div>
+                        <div className="p-8 space-y-4 font-bold font-bold font-bold font-bold font-bold font-bold"><textarea className="w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 shadow-inner transition-all shadow-inner shadow-inner" value={importText} onChange={(e) => setImportText(e.target.value)} /></div>
+                        <div className="p-8 bg-gray-50 border-t flex gap-4 justify-end font-bold font-bold font-bold font-bold font-bold font-bold font-bold"><button onClick={() => setShowImportModal(false)} className="px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 transition-all uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold font-bold">Cancel</button><button onClick={handleImport} className="px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold font-bold">Load</button></div>
+                    </div>
+                </div>
+            )}
+
+            {deleteModal.show && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[11000] flex items-center justify-center p-8 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold font-bold">
+                    <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 text-center animate-in zoom-in-95 duration-200 font-bold font-bold font-bold font-bold font-bold font-bold font-bold"><div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm"><Icon name="AlertTriangle" size={40} /></div><h3 className="text-2xl font-black mb-4 tracking-tighter uppercase text-gray-800 tracking-tighter font-bold font-bold font-bold font-bold font-bold font-bold">Delete Item?</h3><div className="flex gap-4 mt-10 font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold"><button onClick={() => setDeleteModal({ show: false })} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black hover:bg-gray-200 transition-all uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold">Cancel</button><button onClick={executeDelete} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-2xl shadow-red-200 hover:bg-red-700 transition-all uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold">Confirm</button></div></div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+/**
+ * @function PropField
+ * @description A generic UI component for displaying and editing a single property (field).
+ * It dynamically renders as a text input, textarea, or select dropdown based on the `type` prop.
+ * @param {object} props - The component props.
+ * @param {string} props.label - The label displayed above the input field.
+ * @param {string|number} props.value - The current value of the field.
+ * @param {function} props.onChange - The callback function to handle value changes.
+ * @param {boolean} [props.readOnly=false] - If true, the field is not editable.
+ * @param {string} [props.type="text"] - The type of input to render ('text', 'textarea', 'select').
+ * @param {string[]} [props.options=[]] - An array of options for the 'select' type.
+ * @param {string} [props.placeholder=""] - The placeholder text for the input field.
+ * @returns {JSX.Element} A labeled input field component.
+ */
+const PropField = ({ label, value, onChange, readOnly = false, type = "text", options = [], placeholder = "" }) => (
+    <div className="group/field font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold">
+        <label className="text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-widest group-focus-within/field:text-blue-500 transition-colors font-bold font-bold font-bold font-bold font-bold font-bold">{label}</label>
+        {type === "textarea" ? (
+            <textarea value={value} onChange={e => onChange(e.target.value)} rows="5" readOnly={readOnly} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}`} />
+        ) : type === "select" ? (
+            <div className="relative font-bold font-bold">
+                <select value={value} onChange={e => onChange(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold">
+                    {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold"><Icon name="ArrowRight" className="rotate-90" size={14} /></div>
+            </div>
+        ) : (
+            <input type={type} value={value} onChange={e => onChange(e.target.value)} readOnly={readOnly} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}`} />
+        )}
+    </div>
+);
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+});
