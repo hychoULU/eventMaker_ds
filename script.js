@@ -82,7 +82,6 @@ const App = () => {
     const [ctxMenu, setCtxMenu] = useState({ show: false, x: 0, y: 0, type: null, id: null });
     const [clipboard, setClipboard] = useState(null);
     const [collapsedSections, setCollapsedSections] = useState({});
-    const [isInputFocused, setIsInputFocused] = useState(false);
     
     const canvasRef = useRef(null);
     const elementRefs = useRef({});
@@ -250,9 +249,12 @@ const App = () => {
         const handleKeyDown = (e) => {
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdCtrl = isMac ? e.metaKey : e.ctrlKey;
-            
+
+            const activeEl = document.activeElement;
+            const isInputActive = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
             const isTextSelected = window.getSelection().toString() !== '';
-            const canDoEventAction = selectedElement && selectedElement.type === 'event' && !isInputFocused && !isTextSelected;
+
+            const canDoEventAction = selectedElement && selectedElement.type === 'event' && !isInputActive && !isTextSelected;
 
             if (cmdCtrl) {
                 if (e.key.toLowerCase() === 'z') {
@@ -280,7 +282,7 @@ const App = () => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [performUndo, performRedo, downloadJSON, handleCopy, handlePaste, isInputFocused, selectedElement]);
+    }, [performUndo, performRedo, downloadJSON, handleCopy, handlePaste, selectedElement]);
 
     useEffect(() => {
         if (!isCloudAvailable) { isInitialLoaded.current = true; return; }
@@ -753,11 +755,11 @@ const App = () => {
 
             editingWeightData && React.createElement("div", { className: "weight-input-box animate-fadeIn shadow-2xl", style: { left: editingWeightData.x, top: editingWeightData.y } },
                 React.createElement("div", { className: "text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1 text-center font-bold" }, "Set Weight"),
-                React.createElement("input", { autoFocus: true, type: "number", className: "w-20 border-b-2 border-blue-200 outline-none text-sm font-bold text-center p-1", value: tempValue, onChange: (e) => setTempValue(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') saveWeightEdit(); else if (e.key === 'Escape') setEditingWeightData(null); }, onBlur: () => { saveWeightEdit(); setIsInputFocused(false); }, onFocus: () => setIsInputFocused(true) })
+                React.createElement("input", { autoFocus: true, type: "number", className: "w-20 border-b-2 border-blue-200 outline-none text-sm font-bold text-center p-1", value: tempValue, onChange: (e) => setTempValue(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') saveWeightEdit(); else if (e.key === 'Escape') setEditingWeightData(null); }, onBlur: saveWeightEdit })
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.6"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.7"),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
                     ['Fixed', 'Random'].map(type => (
                         React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },
@@ -822,7 +824,7 @@ const App = () => {
                                         React.createElement("div", { className: "bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight text-[10px] font-mono text-gray-400" }, node.NodeID, " ", React.createElement("span", { className: "text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter" }, node.NodeType)),
                                         React.createElement("div", { className: "p-5 font-bold" },
                                             editingNodeCommentId === node.NodeID ? (
-                                                React.createElement("textarea", { autoFocus: true, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNodeCommentId(null); setIsInputFocused(false); }, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') setEditingNodeCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } }, onFocus: () => setIsInputFocused(true) })
+                                                React.createElement("textarea", { autoFocus: true, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNode-CommentId(null); }, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') setEditingNodeCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } } })
                                             ) : (
                                                 React.createElement("p", { onDoubleClick: (e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }, className: "text-[13px] text-gray-700 mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words whitespace-pre-wrap font-medium font-bold" }, node.DevComment)
                                             ),
@@ -835,7 +837,7 @@ const App = () => {
                                                             React.createElement("div", { className: "flex items-center gap-2 overflow-hidden flex-1 font-bold truncate" },
                                                                 !isEd && React.createElement(Icon, { name: "MousePointer", size: 10, className: `${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0` }),
                                                                 isEd ? (
-                                                                    React.createElement("input", { autoFocus: true, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); setIsInputFocused(false); }, onKeyDown: (e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } }, onFocus: () => setIsInputFocused(true) })
+                                                                    React.createElement("input", { autoFocus: true, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); }, onKeyDown: (e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } } })
                                                                 ) : (
                                                                     React.createElement("span", { className: "flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors", onDoubleClick: (e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempValue(c.DevComment); } }, c.DevComment)
                                                                 )
@@ -892,7 +894,7 @@ const App = () => {
             showImportModal && React.createElement("div", { className: "fixed inset-0 bg-black/70 backdrop-blur-md z-[20000] flex items-center justify-center p-8 animate-fadeIn font-bold" },
                 React.createElement("div", { className: "bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300" },
                     React.createElement("div", { className: "p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest shadow-sm font-bold font-bold font-bold font-bold font-bold font-bold" }, "Import JSON Data", React.createElement("button", { onClick: () => setShowImportModal(false), className: "hover:rotate-90 transition-transform" }, React.createElement(Icon, { name: "Plus", size: 32, className: "rotate-45 text-gray-400 font-bold" }))),
-                    React.createElement("div", { className: "p-8 space-y-4 font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement("textarea", { className: "w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 shadow-inner transition-all shadow-inner shadow-inner", value: importText, onChange: (e) => setImportText(e.target.value), onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) })),
+                    React.createElement("div", { className: "p-8 space-y-4 font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement("textarea", { className: "w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 shadow-inner transition-all shadow-inner shadow-inner", value: importText, onChange: (e) => setImportText(e.target.value) })),
                     React.createElement("div", { className: "p-8 bg-gray-50 border-t flex gap-4 justify-end font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement("button", { onClick: () => setShowImportModal(false), className: "px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 transition-all uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, "Cancel"), React.createElement("button", { onClick: handleImport, className: "px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, "Load"))
                 )
             ),
@@ -915,16 +917,16 @@ const PropField = ({ label, value, onChange, readOnly = false, type = "text", op
     React.createElement("div", { className: "group/field font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" },
         React.createElement("label", { className: "text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-widest group-focus-within/field:text-blue-500 transition-colors font-bold font-bold font-bold font-bold font-bold font-bold" }, label),
         type === "textarea" ? (
-            React.createElement("textarea", { value: value, onChange: e => onChange(e.target.value), rows: "5", readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}`, onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) })
+            React.createElement("textarea", { value: value, onChange: e => onChange(e.target.value), rows: "5", readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}` })
         ) : type === "select" ? (
             React.createElement("div", { className: "relative font-bold font-bold" },
-                React.createElement("select", { value: value, onChange: e => onChange(e.target.value), className: "w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold", onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) },
+                React.createElement("select", { value: value, onChange: e => onChange(e.target.value), className: "w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold" },
                     options.map(opt => React.createElement("option", { key: opt, value: opt }, opt))
                 ),
                 React.createElement("div", { className: "absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(Icon, { name: "ArrowRight", className: "rotate-90", size: 14 }))
             )
         ) : (
-            React.createElement("input", { type: type, value: value, onChange: e => onChange(e.target.value), readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}`, onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) })
+            React.createElement("input", { type: type, value: value, onChange: e => onChange(e.target.value), readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}` })
         )
     )
 );
