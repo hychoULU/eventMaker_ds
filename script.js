@@ -2,9 +2,16 @@ const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 function getEventSummary(eventId) {
     if (!eventId) return "E";
+    const match = eventId.match(/_(Random|Fixed)(\d+)/);
+    if (match && match[1] && match[2]) {
+        const typeChar = match[1].charAt(0);
+        const number = match[2];
+        return `${typeChar}${number}`;
+    }
+    // Fallback for safety
     const parts = eventId.split('_');
     const typeChar = parts[1] ? parts[1].charAt(0) : "F";
-    const numMatch = parts[1]?.match(/\\d+/);
+    const numMatch = parts[1]?.match(/\d+/);
     return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
 }
 
@@ -73,6 +80,9 @@ const App = () => {
     const [draggingChoiceId, setDraggingChoiceId] = useState(null);
     const [dropTargetId, setDropTargetId] = useState(null);
     const [ctxMenu, setCtxMenu] = useState({ show: false, x: 0, y: 0, type: null, id: null });
+    const [clipboard, setClipboard] = useState(null);
+    const [collapsedSections, setCollapsedSections] = useState({});
+    const [isInputFocused, setIsInputFocused] = useState(false);
     
     const canvasRef = useRef(null);
     const elementRefs = useRef({});
@@ -111,7 +121,10 @@ const App = () => {
     const downloadJSON = useCallback(() => {
         const dateStr = new Date().toISOString().slice(0,10);
         const data = { 
-            "Event시트": events, 
+            "Event시트": events.map(e => ({
+                ...e,
+                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/\n/g, ',')
+            })), 
             "Node시트": nodes.map(({ depth, ...rest }) => rest), 
             "Choice시트": choices.map(c => {
                 const actionStr = (c.OnSelectAction || "").replace(/\n/g, ',');
@@ -132,10 +145,114 @@ const App = () => {
         showToast("JSON Exported");
     }, [events, nodes, choices, showToast]);
 
+    const handleCopy = useCallback(() => {
+        if (selectedElement && selectedElement.type === 'event') {
+            const eventToCopy = events.find(e => e.EventID === selectedElement.id);
+            if (eventToCopy) {
+                const nodesToCopy = nodes.filter(n => n.LinkedEventID === eventToCopy.EventID);
+                const nodeIdsToCopy = nodesToCopy.map(n => n.NodeID);
+                const choicesToCopy = choices.filter(c => nodeIdsToCopy.includes(c.LinkedNodeID));
+                
+                setClipboard({
+                    type: 'event',
+                    event: JSON.parse(JSON.stringify(eventToCopy)),
+                    nodes: JSON.parse(JSON.stringify(nodesToCopy)),
+                    choices: JSON.parse(JSON.stringify(choicesToCopy)),
+                });
+                showToast("Event copied!");
+            }
+        }
+    }, [selectedElement, events, nodes, choices, showToast]);
+
+    const handlePaste = useCallback(() => {
+        if (!clipboard || clipboard.type !== 'event') return;
+
+        recordHistory();
+
+        const targetType = events.find(e => e.EventID === selectedEventId)?.EventType || 'Fixed';
+        
+        const existingIndices = events
+            .filter(e => e.EventType === targetType)
+            .map(e => parseInt(e.EventID.match(/\d+$/)[0]))
+            .sort((a, b) => a - b);
+        let newIndex = 0;
+        for (const index of existingIndices) {
+            if (index === newIndex) newIndex++; else break;
+        }
+        
+        const newEventId = `Event_${targetType}${newIndex}`;
+        const newEventSummary = getEventSummary(newEventId);
+        const oldEventSummary = getEventSummary(clipboard.event.EventID);
+
+        const idMap = {};
+        idMap[clipboard.event.EventID] = newEventId;
+
+        const newNodes = clipboard.nodes.map(node => {
+            const oldNodeId = node.NodeID;
+            const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
+            idMap[oldNodeId] = newNodeId;
+            return {
+                ...node,
+                NodeID: newNodeId,
+                LinkedEventID: newEventId,
+                ChoiceIDs: []
+            };
+        });
+
+        const newChoices = clipboard.choices.map(choice => {
+            const oldChoiceId = choice.ChoiceID;
+            const newChoiceId = oldChoiceId.replace(`Choice${oldEventSummary}`, `Choice${newEventSummary}`);
+            idMap[oldChoiceId] = newChoiceId;
+            
+            const oldLinkedNodeId = choice.LinkedNodeID;
+            const newLinkedNodeId = idMap[oldLinkedNodeId];
+
+            const parentNode = newNodes.find(n => n.NodeID === newLinkedNodeId);
+            if(parentNode) parentNode.ChoiceIDs.push(newChoiceId);
+
+            return {
+                ...choice,
+                ChoiceID: newChoiceId,
+                LinkedNodeID: newLinkedNodeId,
+            };
+        });
+
+        const replaceIdsInString = (str) => {
+            if (!str) return str;
+            let newStr = str;
+            for (const oldId in idMap) {
+                newStr = newStr.split(oldId).join(idMap[oldId]);
+            }
+            return newStr;
+        };
+
+        newChoices.forEach(choice => {
+            choice.OnSelectAction = replaceIdsInString(choice.OnSelectAction);
+            choice.ActiveTooltipValue = replaceIdsInString(choice.ActiveTooltipValue);
+        });
+
+        const newEvent = {
+            ...clipboard.event,
+            EventID: newEventId,
+            EventType: targetType,
+            StartNodeID: idMap[clipboard.event.StartNodeID] || ""
+        };
+
+        setEvents(prev => [...prev, newEvent]);
+        setNodes(prev => [...prev, ...newNodes]);
+        setChoices(prev => [...prev, ...newChoices]);
+        setSelectedEventId(newEventId);
+        showToast("Event pasted!");
+
+    }, [clipboard, events, nodes, choices, selectedEventId, recordHistory, showToast]);
+
     useEffect(() => {
         const handleKeyDown = (e) => {
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdCtrl = isMac ? e.metaKey : e.ctrlKey;
+            
+            const isTextSelected = window.getSelection().toString() !== '';
+            const canDoEventAction = selectedElement && selectedElement.type === 'event' && !isInputFocused && !isTextSelected;
 
             if (cmdCtrl) {
                 if (e.key.toLowerCase() === 'z') {
@@ -148,12 +265,22 @@ const App = () => {
                 } else if (e.key.toLowerCase() === 's') {
                     downloadJSON();
                     e.preventDefault();
+                } else if (e.key.toLowerCase() === 'c') {
+                    if (canDoEventAction) {
+                        handleCopy();
+                        e.preventDefault();
+                    }
+                } else if (e.key.toLowerCase() === 'v') {
+                    if (canDoEventAction) {
+                        handlePaste();
+                        e.preventDefault();
+                    }
                 }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [performUndo, performRedo, downloadJSON]);
+    }, [performUndo, performRedo, downloadJSON, handleCopy, handlePaste, isInputFocused, selectedElement]);
 
     useEffect(() => {
         if (!isCloudAvailable) { isInitialLoaded.current = true; return; }
@@ -211,12 +338,31 @@ const App = () => {
 
     const createEvent = (type) => {
         recordHistory();
-        const count = events.filter(e => e.EventType === type).length;
-        const id = `Event_${type}${count}`;
+        const existingIndices = events
+            .filter(e => e.EventType === type)
+            .map(e => parseInt(e.EventID.match(/\d+$/)[0]))
+            .sort((a, b) => a - b);
+        let newIndex = 0;
+        for (const index of existingIndices) {
+            if (index === newIndex) {
+                newIndex++;
+            } else {
+                break;
+            }
+        }
+        const id = `Event_${type}${newIndex}`;
         const startId = `Node${getEventSummary(id)}00`;
-        setEvents(prev => [...prev, { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 }]);
-        setNodes(prev => [...prev, { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [], depth: 0 }]);
-        setSelectedEventId(id); setSelectedElement({ type: 'event', id });
+        const startChoiceId = `Choice${getEventSummary(id)}000`;
+        
+        const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 };
+        const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
+        const startChoice = { ChoiceID: startChoiceId, DevComment: "새 선택지", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
+        
+        setEvents(prev => [...prev, newEvent]);
+        setNodes(prev => [...prev, startNode]);
+        setChoices(prev => [...prev, startChoice]);
+        setSelectedEventId(id); 
+        setSelectedElement({ type: 'event', id });
     };
 
     const createNode = (depth) => {
@@ -224,9 +370,17 @@ const App = () => {
         const currentDepthCount = nodes.filter(n => n.LinkedEventID === selectedEventId && n.depth === depth).length;
         if (currentDepthCount >= 10) { showToast("Depth limit (10) reached."); return; }
         recordHistory();
-        const idx = getSmallestAvailableNodeIndex(depth);
-        const nid = `Node${getEventSummary(selectedEventId)}${depth}${idx}`;
-        setNodes(prev => [...prev, { NodeID: nid, DevComment: "지문 내용을 입력하세요.", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [], depth }]);
+        const nodeIdx = getSmallestAvailableNodeIndex(depth);
+        const nid = `Node${getEventSummary(selectedEventId)}${depth}${nodeIdx}`;
+
+        const choiceIdx = 0; // Default first choice
+        const cid = `Choice${getEventSummary(selectedEventId)}${depth}${nodeIdx}${choiceIdx}`;
+
+        const newNode = { NodeID: nid, DevComment: "지문 내용을 입력하세요.", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [cid], depth };
+        const newChoice = { ChoiceID: cid, DevComment: "새 선택지", LinkedNodeID: nid, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
+
+        setNodes(prev => [...prev, newNode]);
+        setChoices(prev => [...prev, newChoice]);
         setSelectedElement({ type: 'node', id: nid });
     };
 
@@ -235,27 +389,54 @@ const App = () => {
         if (!node || node.ChoiceIDs.length >= 3) return;
         recordHistory();
         const idx = getSmallestAvailableChoiceIndex(nodeId);
+        if (idx === null) {
+            showToast("Choice limit (3) reached.");
+            return;
+        }
         const cid = `Choice${getEventSummary(selectedEventId)}${nodeId.slice(-2)}${idx}`;
         setChoices(prev => [...prev, { ChoiceID: cid, DevComment: "새 선택지", LinkedNodeID: nodeId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" }]);
-        setNodes(prev => prev.map(n => n.NodeID === nodeId ? { ...n, ChoiceIDs: [...n.ChoiceIDs, cid] } : n));
+        setNodes(prev => prev.map(n => n.NodeID === nodeId ? { ...n, ChoiceIDs: [...n.ChoiceIDs, cid].sort() } : n));
         setSelectedElement({ type: 'choice', id: cid });
     };
 
     const onChoiceDragStart = (e, choiceId) => { setDraggingChoiceId(choiceId); e.dataTransfer.setData("choiceId", choiceId); };
 
-    const onNodeDragOver = (e, nodeId) => { e.preventDefault(); const c = choices.find(x => x.ChoiceID === draggingChoiceId); if (c && nodes.find(n => n.NodeID === nodeId).depth > nodes.find(n => n.NodeID === c.LinkedNodeID).depth) setDropTargetId(nodeId); };
+    const onNodeDragOver = (e, nodeId) => {
+        e.preventDefault();
+        const choice = choices.find(x => x.ChoiceID === draggingChoiceId);
+        if (!choice) return;
+    
+        const targetNode = nodes.find(n => n.NodeID === nodeId);
+        const sourceNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
+    
+        if (targetNode && sourceNode && targetNode.LinkedEventID === selectedEventId && targetNode.depth > sourceNode.depth) {
+            setDropTargetId(nodeId);
+        }
+    };
 
     const onNodeDrop = (e, targetNodeId) => {
-        e.preventDefault(); const cid = draggingChoiceId; const c = choices.find(x => x.ChoiceID === cid);
-        if (c && nodes.find(n => n.NodeID === targetNodeId).depth > nodes.find(n => n.NodeID === c.LinkedNodeID).depth) {
+        e.preventDefault();
+        const choiceId = draggingChoiceId;
+        const choice = choices.find(x => x.ChoiceID === choiceId);
+        if (!choice) {
+            setDraggingChoiceId(null);
+            setDropTargetId(null);
+            return;
+        }
+    
+        const targetNode = nodes.find(n => n.NodeID === targetNodeId);
+        const sourceNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
+    
+        if (targetNode && sourceNode && targetNode.LinkedEventID === selectedEventId && targetNode.depth > sourceNode.depth) {
             recordHistory();
-            const acts = (c.OnSelectAction || "").split(/\n/).filter(a => a.trim() !== "");
+            const acts = (choice.OnSelectAction || "").split(/\n/).filter(a => a.trim() !== "");
             if (!acts.some(a => a.includes(targetNodeId))) {
                 const updatedAction = [...acts, `ShowNextNode_${targetNodeId}_100`].join('\n');
-                setChoices(prev => prev.map(x => x.ChoiceID === cid ? { ...x, OnSelectAction: updatedAction } : x));
+                setChoices(prev => prev.map(x => x.ChoiceID === choiceId ? { ...x, OnSelectAction: updatedAction } : x));
             }
         }
-        setDraggingChoiceId(null); setDropTargetId(null);
+        setDraggingChoiceId(null);
+        setDropTargetId(null);
     };
 
     const onChoiceDrop = (e, targetChoiceId) => {
@@ -338,6 +519,19 @@ const App = () => {
     const updateTooltipType = (choiceId, type) => {
         recordHistory();
         setChoices(choices.map(c => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c));
+        setCtxMenu({ show: false });
+    };
+
+    const disconnectNode = (choiceId, nodeId) => {
+        recordHistory();
+        setChoices(prev => prev.map(c => {
+            if (c.ChoiceID === choiceId) {
+                const acts = (c.OnSelectAction || "").split('\n');
+                const newActs = acts.filter(act => !act.startsWith(`ShowNextNode_${nodeId}`));
+                return { ...c, OnSelectAction: newActs.join('\n') };
+            }
+            return c;
+        }));
         setCtxMenu({ show: false });
     };
 
@@ -428,11 +622,91 @@ const App = () => {
                 else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
                 return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
             });
-            setEvents(eS); setNodes(pN); setChoices(pC);
+            const pE = eS.map(e => ({
+                ...e,
+                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n')
+            }));
+            setEvents(pE); setNodes(pN); setChoices(pC);
             if (eS.length > 0) setSelectedEventId(eS[0].EventID);
             setShowImportModal(false); setImportText(""); showToast("Import Success");
         } catch (e) { alert("Import Failed"); }
     };
+
+    const handleTabNavigation = useCallback((currentType, currentId) => {
+        if (currentType === 'node') {
+            const node = nodes.find(n => n.NodeID === currentId);
+            if (node && tempValue !== node.DevComment) {
+                recordHistory();
+                setNodes(prev => prev.map(n => n.NodeID === currentId ? { ...n, DevComment: tempValue } : n));
+            }
+        } else if (currentType === 'choice') {
+            const choice = choices.find(c => c.ChoiceID === currentId);
+            if (choice && tempValue !== choice.DevComment) {
+                recordHistory();
+                setChoices(prev => prev.map(c => c.ChoiceID === currentId ? { ...c, DevComment: tempValue } : c));
+            }
+        }
+
+        const allEventNodes = nodes
+            .filter(n => n.LinkedEventID === selectedEventId)
+            .sort((a, b) => {
+                if (a.depth !== b.depth) return a.depth - b.depth;
+                return a.NodeID.localeCompare(b.NodeID);
+            });
+
+        let nextElement = null;
+
+        if (currentType === 'node') {
+            const node = nodes.find(n => n.NodeID === currentId);
+            if (node && node.ChoiceIDs.length > 0) {
+                const firstChoiceId = node.ChoiceIDs.sort()[0];
+                const firstChoice = choices.find(c => c.ChoiceID === firstChoiceId);
+                if (firstChoice) {
+                    nextElement = { type: 'choice', data: firstChoice };
+                }
+            }
+        } else if (currentType === 'choice') {
+            const choice = choices.find(c => c.ChoiceID === currentId);
+            if (choice) {
+                const parentNode = nodes.find(n => n.NodeID === choice.LinkedNodeID);
+                if (parentNode) {
+                    const sortedChoices = parentNode.ChoiceIDs.sort();
+                    const currentIndex = sortedChoices.indexOf(currentId);
+                    if (currentIndex < sortedChoices.length - 1) {
+                        const nextChoiceId = sortedChoices[currentIndex + 1];
+                        const nextChoice = choices.find(c => c.ChoiceID === nextChoiceId);
+                        if (nextChoice) {
+                            nextElement = { type: 'choice', data: nextChoice };
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!nextElement) {
+            const currentNodeId = currentType === 'node' ? currentId : choices.find(c => c.ChoiceID === currentId)?.LinkedNodeID;
+            const currentNodeIndex = allEventNodes.findIndex(n => n.NodeID === currentNodeId);
+            if (currentNodeIndex < allEventNodes.length - 1) {
+                const nextNode = allEventNodes[currentNodeIndex + 1];
+                nextElement = { type: 'node', data: nextNode };
+            }
+        }
+
+        setEditingNodeCommentId(null);
+        setEditingChoiceCommentId(null);
+        
+        if (nextElement) {
+            setTimeout(() => {
+                if (nextElement.type === 'node') {
+                    setEditingNodeCommentId(nextElement.data.NodeID);
+                    setTempValue(nextElement.data.DevComment);
+                } else {
+                    setEditingChoiceCommentId(nextElement.data.ChoiceID);
+                    setTempValue(nextElement.data.DevComment);
+                }
+            }, 0);
+        }
+    }, [nodes, choices, selectedEventId, tempValue, recordHistory]);
 
     return (
         React.createElement("div", { className: "flex h-screen overflow-hidden select-none font-sans text-gray-800" },
@@ -444,29 +718,62 @@ const App = () => {
             ),
 
             ctxMenu.show && React.createElement("div", { className: "ctx-menu animate-fadeIn shadow-2xl", style: { left: ctxMenu.x, top: ctxMenu.y }, onClick: (e) => e.stopPropagation() },
+                (ctxMenu.type === 'event') && React.createElement("button", { onClick: () => { setSelectedElement({type: 'event', id: ctxMenu.id}); handleCopy(); setCtxMenu({show: false}); }, className: "ctx-item" }, "Copy Event"),
+                (ctxMenu.type === 'event' || ctxMenu.type === 'event-list') && React.createElement("button", { onClick: handlePaste, disabled: !clipboard, className: "ctx-item" }, "Paste Event"),
+                
+                (ctxMenu.type === 'event') && React.createElement("div", { className: "ctx-divider" }),
+
                 !(ctxMenu.type === 'node' && nodes.find(n => n.NodeID === ctxMenu.id)?.depth === 0) && React.createElement("button", { onClick: executeDelete, className: "ctx-item danger transition-colors" }, React.createElement(Icon, { name: "Trash2", size: 14 }), " Delete"),
                 ctxMenu.type === 'choice' && React.createElement(React.Fragment, null,
                     React.createElement("div", { className: "ctx-divider" }),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'ShowAction'), className: "ctx-item" }, "ToolTip : Self"),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'ShowChoiceAction'), className: "ctx-item" }, "ToolTip : Choice"),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'Probability'), className: "ctx-item" }, "ToolTip : Probability"),
-                    React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'None'), className: "ctx-item opacity-50" }, "ToolTip : None")
+                    React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'None'), className: "ctx-item opacity-50" }, "ToolTip : None"),
+                    
+                    (() => {
+                        const choice = choices.find(c => c.ChoiceID === ctxMenu.id);
+                        const connectedNodes = (choice?.OnSelectAction || "").split('\n')
+                            .map(act => act.match(/ShowNextNode_([a-zA-Z0-9]+)/))
+                            .filter(Boolean)
+                            .map(match => match[1]);
+                        
+                        if (connectedNodes.length > 0) {
+                            return React.createElement(React.Fragment, null,
+                                React.createElement("div", { className: "ctx-divider" }),
+                                connectedNodes.map(nodeId => 
+                                    React.createElement("button", { key: nodeId, onClick: () => disconnectNode(ctxMenu.id, nodeId), className: "ctx-item" }, "해제 : ", nodeId)
+                                )
+                            );
+                        }
+                        return null;
+                    })()
                 )
             ),
 
             editingWeightData && React.createElement("div", { className: "weight-input-box animate-fadeIn shadow-2xl", style: { left: editingWeightData.x, top: editingWeightData.y } },
                 React.createElement("div", { className: "text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1 text-center font-bold" }, "Set Weight"),
-                React.createElement("input", { autoFocus: true, type: "number", className: "w-20 border-b-2 border-blue-200 outline-none text-sm font-bold text-center p-1", value: tempValue, onChange: (e) => setTempValue(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') saveWeightEdit(); else if (e.key === 'Escape') setEditingWeightData(null); }, onBlur: saveWeightEdit })
+                React.createElement("input", { autoFocus: true, type: "number", className: "w-20 border-b-2 border-blue-200 outline-none text-sm font-bold text-center p-1", value: tempValue, onChange: (e) => setTempValue(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter') saveWeightEdit(); else if (e.key === 'Escape') setEditingWeightData(null); }, onBlur: () => { saveWeightEdit(); setIsInputFocused(false); }, onFocus: () => setIsInputFocused(true) })
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.4"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.6"),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
                     ['Fixed', 'Random'].map(type => (
-                        React.createElement("div", { key: type },
-                            React.createElement("div", { className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold" }, type, " Events"),
-                            events.filter(e => e.EventType === type).map(ev => (
-                                React.createElement("div", { key: ev.EventID, className: "group relative mb-1.5 font-bold" },
+                        React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },
+                            React.createElement("div", { 
+                                className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
+                                onClick: () => setCollapsedSections(prev => ({...prev, [type]: !prev[type]})),
+                                onMouseEnter: (e) => {
+                                    const content = type === 'Fixed' 
+                                        ? "고정된 시점에 등장 하는 이벤트. 발생 조건을 만족 시켰다면, 그 시점에 즉시 발생한다.\nEx) NPC이벤트, 스토리 이벤트, 퀘스트 종료시 이벤트, 도플갱어 이벤트…"
+                                        : "캠페인 타임에 따라 발생 하는 이벤트 풀. 랜덤 이벤트 발생 시점에, 조건을 만족 시켰다면 발생 풀에 넣어서 제비뽑기 한다.\nEx) 천색조 이벤트…";
+                                    setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
+                                },
+                                onMouseLeave: () => setTooltip({ show: false })
+                            }, React.createElement(Icon, { name: "ArrowRight", size: 12, className: `transition-transform ${collapsedSections[type] ? '' : 'rotate-90'}` }), type, " Events"),
+                            !collapsedSections[type] && events.filter(e => e.EventType === type).map(ev => (
+                                React.createElement("div", { key: ev.EventID, className: "group relative mb-1.5 font-bold", onContextMenu: (e) => handleContextMenu(e, 'event', ev.EventID) },
                                     React.createElement("button", { onClick: () => { setSelectedEventId(ev.EventID); setSelectedElement({ type: 'event', id: ev.EventID }); }, className: `w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-400 font-bold' : 'hover:bg-gray-100 font-bold'}` },
                                         React.createElement("div", { className: "text-xs truncate font-bold" }, ev.EventID),
                                         React.createElement("div", { className: "text-[10px] truncate opacity-60 font-medium" }, ev.DevComment)
@@ -515,9 +822,9 @@ const App = () => {
                                         React.createElement("div", { className: "bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight text-[10px] font-mono text-gray-400" }, node.NodeID, " ", React.createElement("span", { className: "text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter" }, node.NodeType)),
                                         React.createElement("div", { className: "p-5 font-bold" },
                                             editingNodeCommentId === node.NodeID ? (
-                                                React.createElement("textarea", { autoFocus: true, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNodeCommentId(null); }, onKeyDown: (e) => { if (e.key === 'Enter' && !e.shiftKey) e.currentTarget.blur(); else if (e.key === 'Escape') setEditingNodeCommentId(null); } })
+                                                React.createElement("textarea", { autoFocus: true, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNodeCommentId(null); setIsInputFocused(false); }, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') setEditingNodeCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } }, onFocus: () => setIsInputFocused(true) })
                                             ) : (
-                                                React.createElement("p", { onDoubleClick: (e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }, className: "text-[13px] text-gray-700 mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words whitespace-pre-wrap font-medium font-bold" }, "\"", node.DevComment, "\"")
+                                                React.createElement("p", { onDoubleClick: (e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }, className: "text-[13px] text-gray-700 mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words whitespace-pre-wrap font-medium font-bold" }, node.DevComment)
                                             ),
                                             React.createElement("div", { className: "space-y-2" },
                                                 node.ChoiceIDs.map(cid => {
@@ -528,7 +835,7 @@ const App = () => {
                                                             React.createElement("div", { className: "flex items-center gap-2 overflow-hidden flex-1 font-bold truncate" },
                                                                 !isEd && React.createElement(Icon, { name: "MousePointer", size: 10, className: `${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0` }),
                                                                 isEd ? (
-                                                                    React.createElement("input", { autoFocus: true, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); }, onKeyDown: (e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); } })
+                                                                    React.createElement("input", { autoFocus: true, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); setIsInputFocused(false); }, onKeyDown: (e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } }, onFocus: () => setIsInputFocused(true) })
                                                                 ) : (
                                                                     React.createElement("span", { className: "flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors", onDoubleClick: (e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempValue(c.DevComment); } }, c.DevComment)
                                                                 )
@@ -557,6 +864,7 @@ const App = () => {
                         return React.createElement("div", { className: "space-y-4 animate-fadeIn" },
                             React.createElement(PropField, { label: "Event ID", value: ev.EventID, readOnly: true }),
                             React.createElement(PropField, { label: "Dev Comment", value: ev.DevComment, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, DevComment: v} : e)); }, type: "textarea" }),
+                            React.createElement(PropField, { label: "Target Unit Condition", value: ev.TargetUnitCondition, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, TargetUnitCondition: v} : e)); }, type: "textarea" }),
                             React.createElement("div", { className: "grid grid-cols-2 gap-3" }, React.createElement(PropField, { label: "Weight", value: ev.Weight, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }, type: "number" }), React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }, type: "number" })),
                             React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable"))
                         );
@@ -584,7 +892,7 @@ const App = () => {
             showImportModal && React.createElement("div", { className: "fixed inset-0 bg-black/70 backdrop-blur-md z-[20000] flex items-center justify-center p-8 animate-fadeIn font-bold" },
                 React.createElement("div", { className: "bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300" },
                     React.createElement("div", { className: "p-8 border-b flex justify-between items-center font-black text-xl tracking-tighter uppercase tracking-widest shadow-sm font-bold font-bold font-bold font-bold font-bold font-bold" }, "Import JSON Data", React.createElement("button", { onClick: () => setShowImportModal(false), className: "hover:rotate-90 transition-transform" }, React.createElement(Icon, { name: "Plus", size: 32, className: "rotate-45 text-gray-400 font-bold" }))),
-                    React.createElement("div", { className: "p-8 space-y-4 font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement("textarea", { className: "w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 shadow-inner transition-all shadow-inner shadow-inner", value: importText, onChange: (e) => setImportText(e.target.value) })),
+                    React.createElement("div", { className: "p-8 space-y-4 font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement("textarea", { className: "w-full h-80 p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-mono text-xs focus:ring-4 focus:ring-blue-100 shadow-inner transition-all shadow-inner shadow-inner", value: importText, onChange: (e) => setImportText(e.target.value), onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) })),
                     React.createElement("div", { className: "p-8 bg-gray-50 border-t flex gap-4 justify-end font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement("button", { onClick: () => setShowImportModal(false), className: "px-8 py-3 rounded-2xl text-sm font-black text-gray-500 hover:bg-gray-200 transition-all uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, "Cancel"), React.createElement("button", { onClick: handleImport, className: "px-10 py-3 rounded-2xl text-sm font-black bg-blue-600 text-white shadow-xl hover:bg-blue-700 uppercase tracking-widest font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, "Load"))
                 )
             ),
@@ -607,16 +915,16 @@ const PropField = ({ label, value, onChange, readOnly = false, type = "text", op
     React.createElement("div", { className: "group/field font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" },
         React.createElement("label", { className: "text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-widest group-focus-within/field:text-blue-500 transition-colors font-bold font-bold font-bold font-bold font-bold font-bold" }, label),
         type === "textarea" ? (
-            React.createElement("textarea", { value: value, onChange: e => onChange(e.target.value), rows: "5", readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}` })
+            React.createElement("textarea", { value: value, onChange: e => onChange(e.target.value), rows: "5", readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}`, onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) })
         ) : type === "select" ? (
             React.createElement("div", { className: "relative font-bold font-bold" },
-                React.createElement("select", { value: value, onChange: e => onChange(e.target.value), className: "w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold" },
+                React.createElement("select", { value: value, onChange: e => onChange(e.target.value), className: "w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold", onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) },
                     options.map(opt => React.createElement("option", { key: opt, value: opt }, opt))
                 ),
                 React.createElement("div", { className: "absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(Icon, { name: "ArrowRight", className: "rotate-90", size: 14 }))
             )
         ) : (
-            React.createElement("input", { type: type, value: value, onChange: e => onChange(e.target.value), readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}` })
+            React.createElement("input", { type: type, value: value, onChange: e => onChange(e.target.value), readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}`, onFocus: () => setIsInputFocused(true), onBlur: () => setIsInputFocused(false) })
         )
     )
 );
