@@ -85,6 +85,7 @@ const App = () => {
     
     const canvasRef = useRef(null);
     const elementRefs = useRef({});
+    const editingElementRef = useRef(null); // Ref to currently edited DevComment input/textarea
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
 
@@ -98,6 +99,28 @@ const App = () => {
         setUndoStack(prev => [...prev.slice(-49), JSON.stringify({ events, nodes, choices })]);
         setRedoStack([]);
     }, [events, nodes, choices]);
+
+    const saveDevComment = useCallback(() => {
+        if (editingNodeCommentId) {
+            const node = nodes.find(n => n.NodeID === editingNodeCommentId);
+            if (node && tempValue !== node.DevComment) {
+                recordHistory();
+                setNodes(prev => prev.map(n => n.NodeID === editingNodeCommentId ? {...n, DevComment: tempValue} : n));
+            }
+            setEditingNodeCommentId(null);
+            setTempValue(""); // Clear tempValue after saving
+        } else if (editingChoiceCommentId) {
+            const choice = choices.find(c => c.ChoiceID === editingChoiceCommentId);
+            if (choice && tempValue !== choice.DevComment) {
+                recordHistory();
+                setChoices(prev => prev.map(c => c.ChoiceID === editingChoiceCommentId ? {...c, DevComment: tempValue} : c));
+            }
+            setEditingChoiceCommentId(null);
+            setTempValue(""); // Clear tempValue after saving
+        }
+    }, [editingNodeCommentId, editingChoiceCommentId, tempValue, nodes, choices, recordHistory]);
+
+
 
     const performUndo = useCallback(() => {
         if (undoStack.length === 0) return;
@@ -600,16 +623,31 @@ const App = () => {
     }, [choices, nodes, selectedEventId]);
 
     useEffect(() => { 
-        const closeCtx = () => { if(ctxMenu.show) setCtxMenu({ show: false }); };
-        window.addEventListener('click', closeCtx);
         updateLines(); 
         const obs = new ResizeObserver(() => updateLines()); 
         if (canvasRef.current) obs.observe(canvasRef.current); 
-        return () => {
-            window.removeEventListener('click', closeCtx);
-            obs.disconnect(); 
+        return () => { obs.disconnect(); };
+    }, [updateLines]);
+
+    useEffect(() => {
+        const closeCtx = () => { if(ctxMenu.show) setCtxMenu({ show: false }); };
+        window.addEventListener('click', closeCtx);
+        return () => window.removeEventListener('click', closeCtx);
+    }, [ctxMenu.show]);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (editingNodeCommentId || editingChoiceCommentId) {
+                if (editingElementRef.current && !editingElementRef.current.contains(event.target)) {
+                    saveDevComment();
+                }
+            }
         };
-    }, [updateLines, ctxMenu.show]);
+        document.addEventListener('mousedown', handleClickOutside); 
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [editingNodeCommentId, editingChoiceCommentId, saveDevComment]);
 
     const handleImport = () => {
         try {
@@ -635,19 +673,7 @@ const App = () => {
     };
 
     const handleTabNavigation = useCallback((currentType, currentId) => {
-        if (currentType === 'node') {
-            const node = nodes.find(n => n.NodeID === currentId);
-            if (node && tempValue !== node.DevComment) {
-                recordHistory();
-                setNodes(prev => prev.map(n => n.NodeID === currentId ? { ...n, DevComment: tempValue } : n));
-            }
-        } else if (currentType === 'choice') {
-            const choice = choices.find(c => c.ChoiceID === currentId);
-            if (choice && tempValue !== choice.DevComment) {
-                recordHistory();
-                setChoices(prev => prev.map(c => c.ChoiceID === currentId ? { ...c, DevComment: tempValue } : c));
-            }
-        }
+        saveDevComment(); // Save current comment before navigating
 
         const allEventNodes = nodes
             .filter(n => n.LinkedEventID === selectedEventId)
@@ -708,7 +734,7 @@ const App = () => {
                 }
             }, 0);
         }
-    }, [nodes, choices, selectedEventId, tempValue, recordHistory]);
+    }, [nodes, choices, selectedEventId, tempValue, recordHistory, saveDevComment]);
 
     return (
         React.createElement("div", { className: "flex h-screen overflow-hidden select-none font-sans text-gray-800" },
@@ -759,7 +785,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.7"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.8"),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
                     ['Fixed', 'Random'].map(type => (
                         React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },
@@ -824,7 +850,7 @@ const App = () => {
                                         React.createElement("div", { className: "bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight text-[10px] font-mono text-gray-400" }, node.NodeID, " ", React.createElement("span", { className: "text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter" }, node.NodeType)),
                                         React.createElement("div", { className: "p-5 font-bold" },
                                             editingNodeCommentId === node.NodeID ? (
-                                                React.createElement("textarea", { autoFocus: true, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== node.DevComment) { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: tempValue} : n)); } setEditingNode-CommentId(null); }, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') setEditingNodeCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } } })
+                                                React.createElement("textarea", { autoFocus: true, ref: editingElementRef, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } } })
                                             ) : (
                                                 React.createElement("p", { onDoubleClick: (e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }, className: "text-[13px] text-gray-700 mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words whitespace-pre-wrap font-medium font-bold" }, node.DevComment)
                                             ),
@@ -837,7 +863,7 @@ const App = () => {
                                                             React.createElement("div", { className: "flex items-center gap-2 overflow-hidden flex-1 font-bold truncate" },
                                                                 !isEd && React.createElement(Icon, { name: "MousePointer", size: 10, className: `${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0` }),
                                                                 isEd ? (
-                                                                    React.createElement("input", { autoFocus: true, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: () => { if (tempValue !== c.DevComment) { recordHistory(); setChoices(choices.map(item => item.ChoiceID === cid ? {...item, DevComment: tempValue} : item)); } setEditingChoiceCommentId(null); }, onKeyDown: (e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditingChoiceCommentId(null); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } } })
+                                                                    React.createElement("input", { autoFocus: true, ref: editingElementRef, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') saveDevComment(); else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } } })
                                                                 ) : (
                                                                     React.createElement("span", { className: "flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors", onDoubleClick: (e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempValue(c.DevComment); } }, c.DevComment)
                                                                 )
