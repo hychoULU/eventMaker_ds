@@ -7,6 +7,27 @@ let gapiInitialized = false;
 let gisInited = false;
 let tokenClient;
 
+async function initializeGapiClient() {
+    await gapi.client.init({
+        apiKey: API_KEY,
+        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+    });
+    gapiInitialized = true;
+}
+
+window.gapiLoaded = () => {
+    gapi.load('client', initializeGapiClient);
+};
+
+window.gisLoaded = () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
+    });
+    gisInited = true;
+};
+
 function handleAuthClick() {
     tokenClient.callback = async (resp) => {
         if (resp.error) {
@@ -25,26 +46,6 @@ function handleAuthClick() {
     }
 }
 
-function gapiLoaded() {
-    gapi.load('client', intializeGapiClient);
-}
-
-async function intializeGapiClient() {
-    await gapi.client.init({
-        apiKey: API_KEY,
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-    });
-    gapiInitialized = true;
-}
-
-function gisLoaded() {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
-    });
-    gisInited = true;
-}
 
 
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
@@ -314,16 +315,11 @@ const App = () => {
     }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast]);
 
     useEffect(() => {
-        gapiLoaded();
-        gisLoaded();
-    }, []);
-
-    useEffect(() => {
         if (gapiInitialized && gisInited) {
             handleAuthClick(); // Automatically attempt authentication on load
             loadFromDrive(); // Attempt to load from drive after authentication
         }
-    }, [gapiInitialized, gisInited]);
+    }, [gapiInitialized, gisInited, loadFromDrive]); // Added loadFromDrive to dependency array
 
 
 
