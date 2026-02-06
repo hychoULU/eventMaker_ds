@@ -1,3 +1,52 @@
+const CLIENT_ID = '417625071700-296k9dfgaedqhrgkr66vrbv9uea6p1gs.apps.googleusercontent.com';
+const API_KEY = 'AIzaSyAp5YPAyypfkfeBP9GqFuhbRMZWsVF8abk';
+const FOLDER_ID = '1aVLAXF9jSMgBBq9KonoDEjVNOuG_XaTg'; // User provided folder ID
+const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+let gapiInitialized = false;
+let gisInited = false;
+let tokenClient;
+
+function handleAuthClick() {
+    tokenClient.callback = async (resp) => {
+        if (resp.error) {
+            throw (resp);
+        }
+        // We don't need to list files here, just ensure auth is successful
+        console.log('Google Drive authenticated.');
+    };
+
+    if (gapi.client.getToken() === null) {
+        // No token available, initiate authorization flow.
+        tokenClient.requestAccessToken({prompt: 'consent'});
+    } else {
+        // Token already exists, refresh or use directly.
+        tokenClient.requestAccessToken({prompt: ''});
+    }
+}
+
+function gapiLoaded() {
+    gapi.load('client', intializeGapiClient);
+}
+
+async function intializeGapiClient() {
+    await gapi.client.init({
+        apiKey: API_KEY,
+        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+    });
+    gapiInitialized = true;
+}
+
+function gisLoaded() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
+    });
+    gisInited = true;
+}
+
+
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 function getEventSummary(eventId) {
@@ -15,22 +64,9 @@ function getEventSummary(eventId) {
     return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
 }
 
-let isCloudAvailable = false;
-let appId = 'event-editor-app';
-let initialAuthToken = null;
-
-try {
-    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-        const config = JSON.parse(__firebase_config);
-        firebase.initializeApp(config);
-        isCloudAvailable = true;
-    }
-    if (typeof __app_id !== 'undefined' && __app_id) appId = __app_id;
-    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) initialAuthToken = __initial_auth_token;
-} catch (e) { console.warn("Local Mode Active."); }
-
-const auth = isCloudAvailable ? firebase.auth() : null;
-const db = isCloudAvailable ? firebase.firestore() : null;
+let isCloudAvailable = false; // Firebase functionality removed
+let appId = 'event-editor-app'; // No longer used for Firebase, but kept for potential future use
+let initialAuthToken = null; // No longer used for Firebase
 
 const Icon = ({ name, size = 16, className = "" }) => {
     const icons = {
@@ -66,10 +102,6 @@ const App = () => {
     const [showImportModal, setShowImportModal] = useState(false);
     const [importText, setImportText] = useState("");
     const [toast, setToast] = useState({ show: false, message: "" });
-    
-    const [cloudStatus, setCloudStatus] = useState(isCloudAvailable ? "idle" : "offline");
-    const [user, setUser] = useState(null);
-    const isInitialLoaded = useRef(false);
 
     const [editingNodeCommentId, setEditingNodeCommentId] = useState(null);
     const [editingChoiceCommentId, setEditingChoiceCommentId] = useState(null);
@@ -120,8 +152,6 @@ const App = () => {
         }
     }, [editingNodeCommentId, editingChoiceCommentId, tempValue, nodes, choices, recordHistory]);
 
-
-
     const performUndo = useCallback(() => {
         if (undoStack.length === 0) return;
         const prevSnapshot = JSON.parse(undoStack[undoStack.length - 1]);
@@ -140,32 +170,162 @@ const App = () => {
         showToast("Redo Successful");
     }, [redoStack, events, nodes, choices, showToast]);
 
-    const downloadJSON = useCallback(() => {
-        const dateStr = new Date().toISOString().slice(0,10);
-        const data = { 
+    const uploadToDrive = useCallback(async () => {
+        if (!gapiInitialized || !gisInited) {
+            showToast("Google API not initialized. Please try again.");
+            handleAuthClick(); // Attempt to re-authenticate
+            return;
+        }
+
+        const authInstance = gapi.auth.getToken();
+        if (!authInstance) {
+            showToast("Not authenticated with Google Drive. Please authenticate.");
+            handleAuthClick();
+            return;
+        }
+
+        const data = {
             "Event시트": events.map(e => ({
                 ...e,
                 TargetUnitCondition: (e.TargetUnitCondition || "").replace(/\n/g, ',')
-            })), 
-            "Node시트": nodes.map(({ depth, ...rest }) => rest), 
+            })),
+            "Node시트": nodes.map(({ depth, ...rest }) => rest),
             "Choice시트": choices.map(c => {
                 const actionStr = (c.OnSelectAction || "").replace(/\n/g, ',');
                 let tType = c.ActiveTooltipType;
                 if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
                     tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
                 }
-                return { 
+                return {
                     ChoiceID: c.ChoiceID, DevComment: c.DevComment, LinkedNodeID: c.LinkedNodeID,
                     ActiveCondition: c.ActiveCondition, OnSelectAction: actionStr, ActiveTooltipType: tType
                 };
-            }) 
+            })
         };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a'); link.href = url; link.download = `DS_Events_${dateStr}.json`;
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
-        showToast("JSON Exported");
+
+        const fileContent = JSON.stringify(data, null, 2);
+        const fileName = `DS_Events.json`; // Always save to a fixed file name
+
+        showToast("Saving to Google Drive...");
+
+        try {
+            // Check if the file already exists in the folder
+            const response = await gapi.client.drive.files.list({
+                q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
+                fields: 'files(id, name)',
+            });
+
+            const files = response.result.files;
+
+            if (files.length > 0) {
+                // File exists, update it
+                const fileId = files[0].id;
+                await gapi.client.request({
+                    path: '/upload/drive/v3/files/' + fileId,
+                    method: 'PATCH',
+                    params: { uploadType: 'media' },
+                    headers: { 'Content-Type': 'application/json' },
+                    body: fileContent,
+                });
+                showToast(`File '${fileName}' updated in Google Drive.`);
+            } else {
+                // File does not exist, create it
+                const fileMetadata = {
+                    name: fileName,
+                    parents: [FOLDER_ID],
+                };
+                const form = new FormData();
+                form.append('metadata', new Blob([JSON.stringify(fileMetadata)], { type: 'application/json' }));
+                form.append('media', new Blob([fileContent], { type: 'application/json' }));
+
+                await gapi.client.request({
+                    path: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'multipart/related' },
+                    body: form,
+                });
+                showToast(`File '${fileName}' created in Google Drive.`);
+            }
+        } catch (error) {
+            console.error("Error uploading to Google Drive:", error);
+            showToast("Failed to save to Google Drive.");
+        }
     }, [events, nodes, choices, showToast]);
+
+    const loadFromDrive = useCallback(async () => {
+        if (!gapiInitialized || !gisInited) {
+            showToast("Google API not initialized. Please try again.");
+            handleAuthClick();
+            return;
+        }
+
+        const authInstance = gapi.auth.getToken();
+        if (!authInstance) {
+            showToast("Not authenticated with Google Drive. Please authenticate.");
+            handleAuthClick();
+            return;
+        }
+
+        const fileName = `DS_Events.json`;
+        showToast("Loading from Google Drive...");
+
+        try {
+            const response = await gapi.client.drive.files.list({
+                q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
+                fields: 'files(id, name)',
+            });
+
+            const files = response.result.files;
+
+            if (files.length > 0) {
+                const fileId = files[0].id;
+                const fileContentResponse = await gapi.client.drive.files.get({
+                    fileId: fileId,
+                    alt: 'media',
+                });
+
+                const data = fileContentResponse.result; // data is already parsed JSON
+
+                recordHistory();
+                const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
+                const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+                const pC = cS.map(c => {
+                    const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
+                    let tT = "None", tV = "";
+                    if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
+                    else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
+                    else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
+                    return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
+                });
+                const pE = eS.map(e => ({
+                    ...e,
+                    TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n')
+                }));
+                setEvents(pE); setNodes(pN); setChoices(pC);
+                if (eS.length > 0) setSelectedEventId(eS[0].EventID);
+                showToast(`File '${fileName}' loaded from Google Drive.`);
+            } else {
+                showToast(`File '${fileName}' not found in Google Drive.`);
+            }
+        } catch (error) {
+            console.error("Error loading from Google Drive:", error);
+            showToast("Failed to load from Google Drive.");
+        }
+    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast]);
+
+    useEffect(() => {
+        gapiLoaded();
+        gisLoaded();
+    }, []);
+
+    useEffect(() => {
+        if (gapiInitialized && gisInited) {
+            handleAuthClick(); // Automatically attempt authentication on load
+            loadFromDrive(); // Attempt to load from drive after authentication
+        }
+    }, [gapiInitialized, gisInited]);
+
+
 
     const handleCopy = useCallback(() => {
         if (selectedElement && selectedElement.type === 'event') {
@@ -288,7 +448,7 @@ const App = () => {
                     performRedo();
                     e.preventDefault();
                 } else if (e.key.toLowerCase() === 's') {
-                    downloadJSON();
+                    uploadToDrive(); // Changed to Google Drive save
                     e.preventDefault();
                 } else if (e.key.toLowerCase() === 'c') {
                     if (canDoEventAction) {
@@ -305,47 +465,7 @@ const App = () => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [performUndo, performRedo, downloadJSON, handleCopy, handlePaste, selectedElement]);
-
-    useEffect(() => {
-        if (!isCloudAvailable) { isInitialLoaded.current = true; return; }
-        const initAuth = async () => {
-            try {
-                if (initialAuthToken) await auth.signInWithCustomToken(initialAuthToken);
-                else await auth.signInAnonymously();
-            } catch (e) { setCloudStatus("error"); }
-        };
-        initAuth();
-        const unsub = auth.onAuthStateChanged(setUser);
-        return () => unsub();
-    }, []);
-
-    useEffect(() => {
-        if (!user || !isCloudAvailable) return;
-        db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main').get().then(doc => {
-            if (doc.exists) {
-                const data = doc.data();
-                setEvents(data.events || []); setNodes(data.nodes || []); setChoices(data.choices || []);
-                if (data.events?.length > 0) setSelectedEventId(data.events[0].EventID);
-                showToast("Cloud sync loaded.");
-            }
-            isInitialLoaded.current = true; setCloudStatus("saved");
-        }).catch(() => { setCloudStatus("error"); isInitialLoaded.current = true; });
-    }, [user, showToast]);
-
-    useEffect(() => {
-        if (!user || !isCloudAvailable || !isInitialLoaded.current || events.length === 0) return;
-        const timer = setTimeout(async () => {
-            setCloudStatus("syncing");
-            try {
-                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('projects').doc('main').set({
-                    events, nodes, choices, lastUpdated: new Date()
-                });
-                setCloudStatus("saved");
-            } catch (e) { setCloudStatus("error"); }
-        }, 3000);
-        return () => clearTimeout(timer);
-    }, [events, nodes, choices, user]);
+    }, [performUndo, performRedo, uploadToDrive, handleCopy, handlePaste, selectedElement]);
 
     const getSmallestAvailableNodeIndex = (depth) => {
         const existingIndices = nodes
@@ -655,7 +775,7 @@ const App = () => {
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
             const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
             const pC = cS.map(c => {
-                const uiAct = (c.OnSelectAction || "").replace(/,/g, '\\n');
+                const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";
                 if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
                 else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
@@ -741,9 +861,7 @@ const App = () => {
             toast.show && React.createElement("div", { className: "toast" }, React.createElement(Icon, { name: "Info", size: 18 }), " ", toast.message),
             tooltip.show && React.createElement("div", { className: "tooltip bg-black/90 text-white text-[11px] px-3 py-2 rounded-xl shadow-2xl font-mono whitespace-pre-wrap max-w-xs animate-fadeIn border border-white/10", style: { left: tooltip.x + 10, top: tooltip.y + 10 } }, tooltip.content),
             
-            React.createElement("div", { className: `cloud-indicator ${cloudStatus === 'saved' ? 'text-green-600 bg-green-50' : (cloudStatus === 'syncing' ? 'text-blue-600 bg-blue-50' : (cloudStatus === 'offline' ? 'text-gray-400 bg-gray-100' : 'text-red-600 bg-red-50'))}` },
-                React.createElement(Icon, { name: "Cloud", size: 12, className: cloudStatus === 'syncing' ? 'animate-bounce' : '' }), " ", cloudStatus.toUpperCase()
-            ),
+
 
             ctxMenu.show && React.createElement("div", { className: "ctx-menu animate-fadeIn shadow-2xl", style: { left: ctxMenu.x, top: ctxMenu.y }, onClick: (e) => e.stopPropagation() },
                 (ctxMenu.type === 'event') && React.createElement("button", { onClick: () => { setSelectedElement({type: 'event', id: ctxMenu.id}); handleCopy(); setCtxMenu({show: false}); }, className: "ctx-item" }, "Copy Event"),
@@ -785,7 +903,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.8"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.9"),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
                     ['Fixed', 'Random'].map(type => (
                         React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },
@@ -819,7 +937,7 @@ const App = () => {
                         React.createElement("button", { onClick: performRedo, disabled: redoStack.length === 0, className: "flex-1 py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 hover:bg-gray-100 uppercase transition-all shadow-sm font-bold" }, "Redo")
                     ),
                     React.createElement("button", { onClick: () => setShowImportModal(true), className: "w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-gray-100 uppercase transition-all shadow-sm font-bold transition-all" }, React.createElement(Icon, { name: "Upload", size: 14 }), " Import"),
-                    React.createElement("button", { onClick: downloadJSON, className: "w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black transition-colors uppercase tracking-widest shadow-lg font-bold transition-all" }, React.createElement(Icon, { name: "Download", size: 14 }), " Export")
+                    React.createElement("button", { onClick: uploadToDrive, className: "w-full py-2 bg-gray-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-2 hover:bg-black transition-colors uppercase tracking-widest shadow-lg font-bold transition-all" }, React.createElement(Icon, { name: "Download", size: 14 }), " Export / Save to Drive")
                 )
             ),
 
@@ -861,7 +979,7 @@ const App = () => {
                                                     return (
                                                         React.createElement("div", { key: cid, ref: el => elementRefs.current[cid] = el, draggable: !isEd, onDragStart: (e) => onChoiceDragStart(e, cid), onDragOver: (e) => e.preventDefault(), onDrop: (e) => onChoiceDrop(e, cid), onMouseEnter: (e) => !isEd && handleChoiceHover(e, c), onMouseLeave: () => { setTooltip({ ...tooltip, show: false }); }, onContextMenu: (e) => handleContextMenu(e, 'choice', cid), onClick: (e) => { e.stopPropagation(); setSelectedElement({ type: 'choice', id: cid }); }, className: `p-2.5 border rounded-2xl text-[11px] flex justify-between items-center transition-all cursor-grab active:cursor-grabbing ${isEd ? 'ring-2 ring-blue-500 bg-white shadow-lg' : (selectedElement?.id === cid ? 'bg-orange-50 border-orange-400 text-orange-800 font-bold shadow-md' : 'bg-white border-gray-100 hover:bg-gray-50 font-bold')}` },
                                                             React.createElement("div", { className: "flex items-center gap-2 overflow-hidden flex-1 font-bold truncate" },
-                                                                !isEd && React.createElement(Icon, { name: "MousePointer", size: 10, className: `${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'} shrink-0` }),
+                                                                !isEd && React.createElement(Icon, { name: "MousePointer", size: 10, className: `${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'}` }),
                                                                 isEd ? (
                                                                     React.createElement("input", { autoFocus: true, ref: editingElementRef, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') saveDevComment(); else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } } })
                                                                 ) : (
@@ -960,4 +1078,8 @@ const PropField = ({ label, value, onChange, readOnly = false, type = "text", op
 document.addEventListener('DOMContentLoaded', () => {
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(App, null));
+
+    // Expose gapiLoaded and gisLoaded to the global scope
+    window.gapiLoaded = gapiLoaded;
+    window.gisLoaded = gisLoaded;
 });
