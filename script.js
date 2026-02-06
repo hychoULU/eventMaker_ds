@@ -3,29 +3,27 @@ const API_KEY = 'AIzaSyAp5YPAyypfkfeBP9GqFuhbRMZWsVF8abk';
 const FOLDER_ID = '1aVLAXF9jSMgBBq9KonoDEjVNOuG_XaTg'; // User provided folder ID
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
-let gapiInitialized = false;
-let gisInited = false;
 let tokenClient;
 
-async function initializeGapiClient() {
+async function initializeGapiClient(setGapiInitialized) {
     await gapi.client.init({
         apiKey: API_KEY,
         discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
     });
-    gapiInitialized = true;
+    setGapiInitialized(true);
 }
 
-window.gapiLoaded = () => {
-    gapi.load('client', initializeGapiClient);
+window.gapiLoaded = (setGapiInitialized) => {
+    gapi.load('client', () => initializeGapiClient(setGapiInitialized));
 };
 
-window.gisLoaded = () => {
+window.gisLoaded = (setGisInited) => {
     tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
     });
-    gisInited = true;
+    setGisInited(true);
 };
 
 function handleAuthClick() {
@@ -103,6 +101,8 @@ const App = () => {
     const [showImportModal, setShowImportModal] = useState(false);
     const [importText, setImportText] = useState("");
     const [toast, setToast] = useState({ show: false, message: "" });
+    const [gapiInitialized, setGapiInitialized] = useState(false);
+    const [gisInited, setGisInited] = useState(false);
 
     const [editingNodeCommentId, setEditingNodeCommentId] = useState(null);
     const [editingChoiceCommentId, setEditingChoiceCommentId] = useState(null);
@@ -313,6 +313,11 @@ const App = () => {
             showToast("Failed to load from Google Drive.");
         }
     }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast]);
+
+    useEffect(() => {
+        window.gapiLoaded(setGapiInitialized);
+        window.gisLoaded(setGisInited);
+    }, [setGapiInitialized, setGisInited]);
 
     useEffect(() => {
         if (gapiInitialized && gisInited) {
