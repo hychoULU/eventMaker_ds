@@ -85,19 +85,28 @@ const App = () => {
     const elementRefs = useRef({});
     const editingElementRef = useRef(null); // Ref to currently edited DevComment input/textarea
     const postAuthAction = useRef(null);
+    const authInProgress = useRef(false);
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
 
     const executeAfterAuth = (action) => {
+        if (authInProgress.current) {
+            showToast("Authentication is already in progress.");
+            return;
+        }
+
         if (!gisInited || !gapiInitialized) {
-            showToast("Google API is initializing. Please try again in a moment.");
+            showToast("Google API is initializing... Your action will run automatically.");
+            postAuthAction.current = action; // Queue the action
             return;
         }
 
         if (gapi.client.getToken()) {
             action();
         } else {
-            postAuthAction.current = action; // Set the action to run after login
+            showToast("Please log in to continue.");
+            postAuthAction.current = action;
+            authInProgress.current = true; // Set the lock
             tokenClient.requestAccessToken({ prompt: 'consent' });
         }
     };
