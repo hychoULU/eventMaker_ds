@@ -3,7 +3,13 @@ const API_KEY = 'AIzaSyAp5YPAyypfkfeBP9GqFuhbRMZWsVF8abk';
 const FOLDER_ID = '1aVLAXF9jSMgBBq9KonoDEjVNOuG_XaTg'; // User provided folder ID
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
-let tokenClient; // Initialized in the useEffect for gisScript
+let tokenClient;
+
+
+
+
+
+
 
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
@@ -78,10 +84,32 @@ const App = () => {
     const canvasRef = useRef(null);
     const elementRefs = useRef({});
     const editingElementRef = useRef(null); // Ref to currently edited DevComment input/textarea
-    // Removed postAuthAction ref
-    // Removed authInProgress ref
+    const postAuthAction = useRef(null);
+    const authInProgress = useRef(false);
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
+
+    const executeAfterAuth = (action) => {
+        if (authInProgress.current) {
+            showToast("Authentication is already in progress.");
+            return;
+        }
+
+        if (!gisInited || !gapiInitialized) {
+            showToast("Google API is initializing... Your action will run automatically.");
+            postAuthAction.current = action; // Queue the action
+            return;
+        }
+
+        if (gapi.client.getToken()) {
+            action();
+        } else {
+            showToast("Please log in to continue.");
+            postAuthAction.current = action;
+            authInProgress.current = true; // Set the lock
+            tokenClient.requestAccessToken({ prompt: 'consent' });
+        }
+    };
 
     // --- Business Logic ---
     const showToast = useCallback((msg) => {
@@ -99,7 +127,7 @@ const App = () => {
             const node = nodes.find(n => n.NodeID === editingNodeCommentId);
             if (node && tempValue !== node.DevComment) {
                 recordHistory();
-                setNodes(prev => prev.map(n => n.NodeID === editingNodeCommentId ? { ...n, DevComment: tempValue } : n));
+                setNodes(prev => prev.map(n => n.NodeID === editingNodeCommentId ? {...n, DevComment: tempValue} : n));
             }
             setEditingNodeCommentId(null);
             setTempValue(""); // Clear tempValue after saving
@@ -107,7 +135,7 @@ const App = () => {
             const choice = choices.find(c => c.ChoiceID === editingChoiceCommentId);
             if (choice && tempValue !== choice.DevComment) {
                 recordHistory();
-                setChoices(prev => prev.map(c => c.ChoiceID === editingChoiceCommentId ? { ...c, DevComment: tempValue } : c));
+                setChoices(prev => prev.map(c => c.ChoiceID === editingChoiceCommentId ? {...c, DevComment: tempValue} : c));
             }
             setEditingChoiceCommentId(null);
             setTempValue(""); // Clear tempValue after saving
@@ -132,69 +160,8 @@ const App = () => {
         showToast("Redo Successful");
     }, [redoStack, events, nodes, choices, showToast]);
 
-    // This ref will hold the action to be performed after a successful token acquisition
-    const pendingAction = useRef(null);
-
-    const handleClientLoad = useCallback(() => {
-        if (!gisInited || !gapiInitialized) {
-            // APIs are not fully initialized yet, just return.
-            return;
-        }
-
-        // Attempt a silent token acquisition on initial load.
-        // This sets the default callback for tokenClient.
-        tokenClient.callback = (resp) => {
-            if (resp.error) {
-                console.error("Google silent auth error:", resp.error);
-                // No toast on silent failure, as the user can initiate login manually.
-                pendingAction.current = null; // Clear any pending action on silent auth failure
-            } else {
-                // Silent auth successful, now check for and execute any pending action
-                if (pendingAction.current) {
-                    pendingAction.current();
-                    pendingAction.current = null;
-                }
-            }
-        };
-        tokenClient.requestAccessToken({ prompt: '' }); // Attempt silent token acquisition
-    }, [gapiInitialized, gisInited]);
-
-
-    const handleAuthClick = useCallback((action) => {
-        if (!gisInited || !gapiInitialized) {
-            showToast("Google API is not ready. Please wait a moment.");
-            // If APIs are not ready, queue the action to run after initialization completes.
-            pendingAction.current = action;
-            return;
-        }
-
-        if (gapi.client.getToken()) {
-            // Already authenticated, execute action immediately
-            action();
-        } else {
-            // Not authenticated, set pending action and initiate explicit login
-            showToast("Please log in to continue.");
-            pendingAction.current = action;
-            tokenClient.callback = (resp) => { // Set a specific callback for this explicit request
-                if (resp.error) {
-                    console.error("Google explicit auth error:", resp.error);
-                    showToast("Authentication failed. Please try again.");
-                    pendingAction.current = null; // Clear pending action on failure
-                } else {
-                    // Explicit auth successful, execute pending action
-                    if (pendingAction.current) {
-                        pendingAction.current();
-                        pendingAction.current = null;
-                    }
-                }
-            };
-            tokenClient.requestAccessToken({ prompt: 'consent' }); // Request explicit consent
-        }
-    }, [gapiInitialized, gisInited, showToast]);
-
-
     const uploadToDrive = useCallback(() => {
-        const performSave = async () => {
+        executeAfterAuth(async () => {
             if (!gapiInitialized || !gisInited) {
                 showToast("Google API not initialized. Please try again.");
                 return;
@@ -263,12 +230,11 @@ const App = () => {
                 console.error("Error uploading to Google Drive:", error);
                 showToast("Failed to save to Google Drive.");
             }
-        };
-        handleAuthClick(performSave);
-    }, [events, nodes, choices, showToast, gapiInitialized, gisInited, handleAuthClick]);
+        });
+    }, [events, nodes, choices, showToast, gapiInitialized, gisInited]);
 
     const loadFromDrive = useCallback(() => {
-        const performLoad = async () => {
+        executeAfterAuth(async () => {
             if (!gapiInitialized || !gisInited) {
                 showToast("Google API not ready. Please wait a moment.");
                 return;
@@ -319,10 +285,8 @@ const App = () => {
                 console.error("Error loading from Google Drive:", error);
                 showToast("Failed to load from Google Drive.");
             }
-        };
-        handleAuthClick(performLoad);
-    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast, gapiInitialized, gisInited, handleAuthClick]);
-
+        });
+    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast, gapiInitialized, gisInited]);
 
     useEffect(() => {
         const gapiScript = document.createElement('script');
@@ -336,9 +300,6 @@ const App = () => {
                     discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
                 }).then(() => {
                     setGapiInitialized(true);
-                }).catch(error => {
-                    console.error("Error initializing GAPI client:", error);
-                    showToast("Failed to initialize Google API.");
                 });
             });
         };
@@ -349,36 +310,39 @@ const App = () => {
         gisScript.async = true;
         gisScript.defer = true;
         gisScript.onload = () => {
-            // tokenClient needs to be initialized here with a default callback that just sets gisInited.
-            // The handleAuthClick function will temporarily override tokenClient.callback for specific requests.
+            const tokenCallback = (resp) => {
+                if (resp.error) {
+                    showToast("Authentication failed.");
+                    console.error("Google token error:", resp.error);
+                } else {
+                    if (postAuthAction.current) {
+                        postAuthAction.current();
+                        postAuthAction.current = null; // Clear the action after executing
+                    } else {
+                        // If there's no pending action, just load the data
+                        loadFromDrive();
+                    }
+                }
+            };
+            
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
                 scope: SCOPES,
-                callback: (resp) => { // Default callback
-                    if (!resp.error) setGisInited(true);
-                },
+                callback: tokenCallback,
             });
 
             setGisInited(true);
 
-            // No automatic requestAccessToken({prompt: ''}) here.
-            // handleClientLoad will do the initial silent auth attempt.
+            tokenClient.requestAccessToken({prompt: ''});
         };
         document.body.appendChild(gisScript);
 
         return () => {
             document.body.removeChild(gapiScript);
             document.body.removeChild(gisScript);
-        };
-    }, [setGapiInitialized, setGisInited, showToast]);
-
-    useEffect(() => {
-        if (gapiInitialized && gisInited) {
-            // After both APIs are initialized, attempt initial silent login and load.
-            // This will use the default tokenClient.callback setup in the previous useEffect.
-            handleClientLoad();
         }
-    }, [gapiInitialized, gisInited, handleClientLoad]);
+    }, [setGapiInitialized, setGisInited, loadFromDrive]);
+
 
 
     const handleCopy = useCallback(() => {
@@ -630,7 +594,7 @@ const App = () => {
             recordHistory();
             const acts = (choice.OnSelectAction || "").split(/\n/).filter(a => a.trim() !== "");
             if (!acts.some(a => a.includes(targetNodeId))) {
-                const updatedAction = [...acts, `ShowNextNode_${targetId}_100`].join('\n');
+                const updatedAction = [...acts, `ShowNextNode_${targetNodeId}_100`].join('\n');
                 setChoices(prev => prev.map(x => x.ChoiceID === choiceId ? { ...x, OnSelectAction: updatedAction } : x));
             }
         }
@@ -786,9 +750,9 @@ const App = () => {
                     if (startEl && endEl && canvasRef.current) {
                         const rectC = canvasRef.current.getBoundingClientRect();
                         const rectS = startEl.getBoundingClientRect(), rectE = endEl.getBoundingClientRect();
-                        const x1 = rectS.right - rectC.left, y1 = rectS.top + rectS.height / 2 - rectC.top;
-                        const x2 = rectE.left - rectC.left, y2 = rectE.top + rectE.height / 2 - rectC.top;
-                        res.push({ id: `${choice.ChoiceID}-${targetId}-${idx}`, choiceId: choice.ChoiceID, actionIndex: idx, d: `M ${x1} ${y1} C ${x1 + (x2 - x1) / 2} ${y1}, ${x1 + (x2 - x1) / 2} ${y2}, ${x2} ${y2}`, weight: w, lx: (x1 + x2) / 2, ly: (y1 + y2) / 2 - 8 });
+                        const x1 = rectS.right - rectC.left, y1 = rectS.top + rectS.height/2 - rectC.top;
+                        const x2 = rectE.left - rectC.left, y2 = rectE.top + rectE.height/2 - rectC.top;
+                        res.push({ id: `${choice.ChoiceID}-${targetId}-${idx}`, choiceId: choice.ChoiceID, actionIndex: idx, d: `M ${x1} ${y1} C ${x1 + (x2-x1)/2} ${y1}, ${x1 + (x2-x1)/2} ${y2}, ${x2} ${y2}`, weight: w, lx: (x1+x2)/2, ly: (y1+y2)/2 - 8 });
                     }
                 }
             });
@@ -796,15 +760,15 @@ const App = () => {
         setLines(res);
     }, [choices, nodes, selectedEventId]);
 
-    useEffect(() => {
-        updateLines();
-        const obs = new ResizeObserver(() => updateLines());
-        if (canvasRef.current) obs.observe(canvasRef.current);
+    useEffect(() => { 
+        updateLines(); 
+        const obs = new ResizeObserver(() => updateLines()); 
+        if (canvasRef.current) obs.observe(canvasRef.current); 
         return () => { obs.disconnect(); };
     }, [updateLines]);
 
     useEffect(() => {
-        const closeCtx = () => { if (ctxMenu.show) setCtxMenu({ show: false }); };
+        const closeCtx = () => { if(ctxMenu.show) setCtxMenu({ show: false }); };
         window.addEventListener('click', closeCtx);
         return () => window.removeEventListener('click', closeCtx);
     }, [ctxMenu.show]);
@@ -817,7 +781,7 @@ const App = () => {
                 }
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('mousedown', handleClickOutside); 
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
@@ -1022,7 +986,7 @@ const App = () => {
                                         React.createElement("div", { className: "bg-gray-50/50 px-4 py-3 border-b flex justify-between items-center font-bold tracking-tight text-[10px] font-mono text-gray-400" }, node.NodeID, " ", React.createElement("span", { className: "text-[9px] font-black bg-white px-2 py-1 rounded-full border border-gray-200 text-blue-500 uppercase tracking-tighter" }, node.NodeType)),
                                         React.createElement("div", { className: "p-5 font-bold" },
                                             editingNodeCommentId === node.NodeID ? (
-                                                React.createElement("textarea", { autoFocus: true, ref: editingElementRef, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } } }))
+                                                React.createElement("textarea", { autoFocus: true, ref: editingElementRef, className: "w-full p-3 text-xs border border-blue-200 rounded-xl mb-4 outline-none focus:ring-4 focus:ring-blue-50 min-h-[100px] font-serif bg-white shadow-inner font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') { /* No longer blurs */ } else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('node', node.NodeID); } } })
                                             ) : (
                                                 React.createElement("p", { onDoubleClick: (e) => { e.stopPropagation(); setEditingNodeCommentId(node.NodeID); setTempValue(node.DevComment); }, className: "text-[13px] text-gray-700 mb-5 cursor-text hover:bg-gray-50 rounded-lg p-2 leading-relaxed transition-colors break-words whitespace-pre-wrap font-medium font-bold" }, node.DevComment)
                                             ),
@@ -1035,7 +999,7 @@ const App = () => {
                                                             React.createElement("div", { className: "flex items-center gap-2 overflow-hidden flex-1 font-bold truncate" },
                                                                 !isEd && React.createElement(Icon, { name: "MousePointer", size: 10, className: `${selectedElement?.id === cid ? 'text-orange-400' : 'text-gray-300'}` }),
                                                                 isEd ? (
-                                                                    React.createElement("input", { autoFocus: true, ref: editingElementRef, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') saveDevComment(); else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } } }))
+                                                                    React.createElement("input", { autoFocus: true, ref: editingElementRef, className: "w-full bg-transparent outline-none text-[11px] py-0.5 border-b-2 border-blue-400 font-bold", value: tempValue, onChange: (e) => setTempValue(e.target.value), onBlur: saveDevComment, onKeyDown: (e) => { if (e.key === 'Enter') saveDevComment(); else if (e.key === 'Escape') saveDevComment(); else if (e.key === 'Tab') { e.preventDefault(); handleTabNavigation('choice', cid); } } })
                                                                 ) : (
                                                                     React.createElement("span", { className: "flex-1 cursor-text font-bold whitespace-normal break-words py-1 leading-tight transition-colors", onDoubleClick: (e) => { e.stopPropagation(); setEditingChoiceCommentId(cid); setTempValue(c.DevComment); } }, c.DevComment)
                                                                 )
@@ -1047,7 +1011,8 @@ const App = () => {
                                                 node.ChoiceIDs.length < 3 && React.createElement("button", { onClick: (e) => { e.stopPropagation(); createChoice(node.NodeID); }, className: "w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold font-bold" }, "Add Choice")
                                             )
                                         )
-                                    )))
+                                    )
+                                ))
                             )
                         ))
                     )
@@ -1062,27 +1027,27 @@ const App = () => {
                         if (!ev) return null;
                         return React.createElement("div", { className: "space-y-4 animate-fadeIn" },
                             React.createElement(PropField, { label: "Event ID", value: ev.EventID, readOnly: true }),
-                            React.createElement(PropField, { label: "Dev Comment", value: ev.DevComment, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? { ...e, DevComment: v } : e)); }, type: "textarea" }),
-                            React.createElement(PropField, { label: "Target Unit Condition", value: ev.TargetUnitCondition, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? { ...e, TargetUnitCondition: v } : e)); }, type: "textarea" }),
-                            React.createElement("div", { className: "grid grid-cols-2 gap-3" }, React.createElement(PropField, { label: "Weight", value: ev.Weight, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? { ...e, Weight: parseInt(v) || 0 } : e)); }, type: "number" }), React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? { ...e, CoolDown: parseInt(v) || 0 } : e)); }, type: "number" })),
-                            React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? { ...evnt, IsRepeatable: e.target.checked } : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable"))
+                            React.createElement(PropField, { label: "Dev Comment", value: ev.DevComment, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, DevComment: v} : e)); }, type: "textarea" }),
+                            React.createElement(PropField, { label: "Target Unit Condition", value: ev.TargetUnitCondition, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, TargetUnitCondition: v} : e)); }, type: "textarea" }),
+                            React.createElement("div", { className: "grid grid-cols-2 gap-3" }, React.createElement(PropField, { label: "Weight", value: ev.Weight, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }, type: "number" }), React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }, type: "number" })),
+                            React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable"))
                         );
                     })(),
                     selectedElement.type === 'node' && (() => {
                         const node = nodes.find(n => n.NodeID === selectedElement.id);
                         if (!node) return null;
-                        return React.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(PropField, { label: "Node ID", value: node.NodeID, readOnly: true }), React.createElement(PropField, { label: "Type", value: node.NodeType, onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? { ...n, NodeType: v } : n)); }, type: "select", options: ["Normal", "Reward", "Combat", "End"] }), React.createElement(PropField, { label: "Dev Comment", value: node.DevComment, onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? { ...n, DevComment: v } : n)); }, type: "textarea" }));
+                        return React.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(PropField, { label: "Node ID", value: node.NodeID, readOnly: true }), React.createElement(PropField, { label: "Type", value: node.NodeType, onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: v} : n)); }, type: "select", options: ["Normal", "Reward", "Combat", "End"] }), React.createElement(PropField, { label: "Dev Comment", value: node.DevComment, onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: v} : n)); }, type: "textarea" }));
                     })(),
                     selectedElement.type === 'choice' && (() => {
                         const c = choices.find(x => x.ChoiceID === selectedElement.id);
                         if (!c) return null;
                         return React.createElement("div", { className: "space-y-5 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" },
                             React.createElement(PropField, { label: "Choice ID", value: c.ChoiceID, readOnly: true }),
-                            React.createElement(PropField, { label: "Dev Comment", value: c.DevComment, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? { ...x, DevComment: v } : x)); }, type: "textarea" }),
-                            React.createElement(PropField, { label: "Actions", value: c.OnSelectAction, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? { ...x, OnSelectAction: v } : x)); }, type: "textarea", placeholder: "ShowNextNode_NodeF010_100" }),
-                            React.createElement(PropField, { label: "Condition", value: c.ActiveCondition, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? { ...x, ActiveCondition: v } : x)); } }),
-                            React.createElement(PropField, { label: "Tooltip Type", value: c.ActiveTooltipType, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? { ...x, ActiveTooltipType: v } : x)); }, type: "select", options: ["None", "ShowAction", "ShowChoiceAction", "Probability"] }),
-                            React.createElement(PropField, { label: "Tooltip Value", value: c.ActiveTooltipValue || "", onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? { ...x, ActiveTooltipValue: v } : x)); } })
+                            React.createElement(PropField, { label: "Dev Comment", value: c.DevComment, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, DevComment: v} : x)); }, type: "textarea" }),
+                            React.createElement(PropField, { label: "Actions", value: c.OnSelectAction, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, OnSelectAction: v} : x)); }, type: "textarea", placeholder: "ShowNextNode_NodeF010_100" }),
+                            React.createElement(PropField, { label: "Condition", value: c.ActiveCondition, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveCondition: v} : x)); } }),
+                            React.createElement(PropField, { label: "Tooltip Type", value: c.ActiveTooltipType, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipType: v} : x)); }, type: "select", options: ["None", "ShowAction", "ShowChoiceAction", "Probability"] }),
+                            React.createElement(PropField, { label: "Tooltip Value", value: c.ActiveTooltipValue || "", onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipValue: v} : x)); } })
                         );
                     })()
                 )
@@ -1114,7 +1079,7 @@ const PropField = ({ label, value, onChange, readOnly = false, type = "text", op
     React.createElement("div", { className: "group/field font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" },
         React.createElement("label", { className: "text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-widest group-focus-within/field:text-blue-500 transition-colors font-bold font-bold font-bold font-bold font-bold font-bold" }, label),
         type === "textarea" ? (
-            React.createElement("textarea", { value: value, onChange: e => onChange(e.target.value), rows: "5", readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}` }))
+            React.createElement("textarea", { value: value, onChange: e => onChange(e.target.value), rows: "5", readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-medium shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed bg-gray-100 shadow-none' : 'hover:border-gray-200 font-bold'}` })
         ) : type === "select" ? (
             React.createElement("div", { className: "relative font-bold font-bold" },
                 React.createElement("select", { value: value, onChange: e => onChange(e.target.value), className: "w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] font-black focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none appearance-none cursor-pointer hover:border-gray-200 shadow-sm transition-all shadow-sm font-bold" },
@@ -1123,7 +1088,7 @@ const PropField = ({ label, value, onChange, readOnly = false, type = "text", op
                 React.createElement("div", { className: "absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(Icon, { name: "ArrowRight", className: "rotate-90", size: 14 }))
             )
         ) : (
-            React.createElement("input", { type: type, value: value, onChange: e => onChange(e.target.value), readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}` }))
+            React.createElement("input", { type: type, value: value, onChange: e => onChange(e.target.value), readOnly: readOnly, placeholder: placeholder, className: `w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-[12px] focus:ring-4 focus:ring-blue-50 focus:border-blue-300 outline-none transition-all font-bold shadow-sm font-bold ${readOnly ? 'opacity-50 cursor-not-allowed font-mono bg-gray-100 shadow-inner shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none shadow-none' : 'hover:border-gray-200 font-bold'}` })
         )
     )
 );
