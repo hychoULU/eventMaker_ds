@@ -1,6 +1,6 @@
 const CLIENT_ID = '417625071700-296k9dfgaedqhrgkr66vrbv9uea6p1gs.apps.googleusercontent.com';
 const API_KEY = 'AIzaSyAp5YPAyypfkfeBP9GqFuhbRMZWsVF8abk';
-const FOLDER_ID = '1aVLAXF9jSMgBBq9KonoDEjVNOuG_XaTg'; // User provided folder ID
+const FOLDER_ID = '1aVLAXF9mSMgBBq9KonoDEjVNOeG_XaTg'; // User provided folder ID
 const SCOPES = 'https://www.googleapis.com/auth/drive';
 
 let tokenClient;
