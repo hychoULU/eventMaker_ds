@@ -87,6 +87,30 @@ const App = () => {
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
 
+    const executeAfterAuth = (action) => {
+        if (!tokenClient || !gapiInitialized) {
+            showToast("Google API not ready. Please wait a moment.");
+            return;
+        }
+
+        if (gapi.client.getToken()) {
+            action();
+        } else {
+            showToast("Please log in to continue.");
+            tokenClient.callback = (resp) => {
+                if (!resp.error) {
+                    showToast("Authentication successful!");
+                    action();
+                } else {
+                    showToast("Authentication failed or was cancelled.");
+                }
+                // Reset callback to default to avoid re-running old actions
+                tokenClient.callback = (resp) => { if (!resp.error) setGisInited(true); };
+            };
+            tokenClient.requestAccessToken({ prompt: 'consent' });
+        }
+    };
+
     // --- Business Logic ---
     const showToast = useCallback((msg) => {
         setToast({ show: true, message: msg });
@@ -137,84 +161,79 @@ const App = () => {
     }, [redoStack, events, nodes, choices, showToast]);
 
     const uploadToDrive = useCallback(async () => {
-        if (!gapiInitialized || !gisInited) {
-            showToast("Google API not initialized. Please try again.");
-            handleAuthClick(); // Attempt to re-authenticate
-            return;
-        }
+        const saveAction = async () => {
+            if (!gapiInitialized || !gisInited) {
+                showToast("Google API not initialized. Please try again.");
+                return;
+            }
 
-        if (!gapi.client.getToken()) {
-            showToast("Not authenticated. Please refresh the page.");
-            return;
-        }
+            const data = {
+                "Event시트": events.map(e => ({
+                    ...e,
+                    TargetUnitCondition: (e.TargetUnitCondition || "").replace(/\n/g, ',')
+                })),
+                "Node시트": nodes.map(({ depth, ...rest }) => rest),
+                "Choice시트": choices.map(c => {
+                    const actionStr = (c.OnSelectAction || "").replace(/\n/g, ',');
+                    let tType = c.ActiveTooltipType;
+                    if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
+                        tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
+                    }
+                    return {
+                        ChoiceID: c.ChoiceID, DevComment: c.DevComment, LinkedNodeID: c.LinkedNodeID,
+                        ActiveCondition: c.ActiveCondition, OnSelectAction: actionStr, ActiveTooltipType: tType
+                    };
+                })
+            };
 
-        const data = {
-            "Event시트": events.map(e => ({
-                ...e,
-                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/\n/g, ',')
-            })),
-            "Node시트": nodes.map(({ depth, ...rest }) => rest),
-            "Choice시트": choices.map(c => {
-                const actionStr = (c.OnSelectAction || "").replace(/\n/g, ',');
-                let tType = c.ActiveTooltipType;
-                if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
-                    tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
+            const fileContent = JSON.stringify(data, null, 2);
+            const fileName = `DS_Events.json`;
+
+            showToast("Saving to Google Drive...");
+
+            try {
+                const response = await gapi.client.drive.files.list({
+                    q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
+                    fields: 'files(id, name)',
+                });
+
+                const files = response.result.files;
+
+                if (files.length > 0) {
+                    const fileId = files[0].id;
+                    await gapi.client.request({
+                        path: '/upload/drive/v3/files/' + fileId,
+                        method: 'PATCH',
+                        params: { uploadType: 'media' },
+                        headers: { 'Content-Type': 'application/json' },
+                        body: fileContent,
+                    });
+                    showToast(`File '${fileName}' updated in Google Drive.`);
+                } else {
+                    const fileMetadata = {
+                        name: fileName,
+                        parents: [FOLDER_ID],
+                    };
+                    const form = new FormData();
+                    form.append('metadata', new Blob([JSON.stringify(fileMetadata)], { type: 'application/json' }));
+                    form.append('media', new Blob([fileContent], { type: 'application/json' }));
+
+                    await gapi.client.request({
+                        path: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'multipart/related' },
+                        body: form,
+                    });
+                    showToast(`File '${fileName}' created in Google Drive.`);
                 }
-                return {
-                    ChoiceID: c.ChoiceID, DevComment: c.DevComment, LinkedNodeID: c.LinkedNodeID,
-                    ActiveCondition: c.ActiveCondition, OnSelectAction: actionStr, ActiveTooltipType: tType
-                };
-            })
+            } catch (error) {
+                console.error("Error uploading to Google Drive:", error);
+                showToast("Failed to save to Google Drive.");
+            }
         };
 
-        const fileContent = JSON.stringify(data, null, 2);
-        const fileName = `DS_Events.json`; // Always save to a fixed file name
-
-        showToast("Saving to Google Drive...");
-
-        try {
-            // Check if the file already exists in the folder
-            const response = await gapi.client.drive.files.list({
-                q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
-                fields: 'files(id, name)',
-            });
-
-            const files = response.result.files;
-
-            if (files.length > 0) {
-                // File exists, update it
-                const fileId = files[0].id;
-                await gapi.client.request({
-                    path: '/upload/drive/v3/files/' + fileId,
-                    method: 'PATCH',
-                    params: { uploadType: 'media' },
-                    headers: { 'Content-Type': 'application/json' },
-                    body: fileContent,
-                });
-                showToast(`File '${fileName}' updated in Google Drive.`);
-            } else {
-                // File does not exist, create it
-                const fileMetadata = {
-                    name: fileName,
-                    parents: [FOLDER_ID],
-                };
-                const form = new FormData();
-                form.append('metadata', new Blob([JSON.stringify(fileMetadata)], { type: 'application/json' }));
-                form.append('media', new Blob([fileContent], { type: 'application/json' }));
-
-                await gapi.client.request({
-                    path: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
-                    method: 'POST',
-                    headers: { 'Content-Type': 'multipart/related' },
-                    body: form,
-                });
-                showToast(`File '${fileName}' created in Google Drive.`);
-            }
-        } catch (error) {
-            console.error("Error uploading to Google Drive:", error);
-            showToast("Failed to save to Google Drive.");
-        }
-    }, [events, nodes, choices, showToast]);
+        executeAfterAuth(saveAction);
+    }, [events, nodes, choices, showToast, gapiInitialized, gisInited, executeAfterAuth]);
 
     const loadFromDrive = useCallback(async () => {
         if (!gapiInitialized || !gisInited) {
