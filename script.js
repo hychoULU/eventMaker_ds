@@ -5,12 +5,6 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient;
 
-
-
-
-
-
-
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 function getEventSummary(eventId) {
@@ -90,30 +84,27 @@ const App = () => {
     const [redoStack, setRedoStack] = useState([]);
 
     const executeAfterAuth = (action) => {
-        // 1. 라이브러리 로드 여부 직접 확인
-        const isGapiReady = typeof gapi !== 'undefined' && gapi.client && gapi.client.drive;
-        const isGisReady = typeof tokenClient !== 'undefined' && tokenClient !== null;
+        // 1. React 상태가 아닌, 실제 window 객체에 로드된 라이브러리 확인
+        const isGapiLoaded = window.gapi && window.gapi.client && window.gapi.client.drive;
+        const isGisLoaded = window.google && window.google.accounts && window.google.accounts.oauth2;
 
-        if (!isGapiReady || !isGisReady) {
-            showToast("Google API가 아직 준비되지 않았습니다. 잠시만 기다려주세요.");
+        if (!isGapiLoaded || !isGisLoaded || !tokenClient) {
+            showToast("Google API 라이브러리를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
             return;
         }
-
-        if (authInProgress.current) return;
 
         // 2. 현재 유효한 토큰이 있는지 확인
         const token = gapi.client.getToken();
         
         if (token && token.access_token) {
-            // 토큰이 있으면 즉시 실행
+            // 이미 로그인 되어 있다면 바로 실행
             action();
         } else {
-            // 토큰이 없으면 로그인 시도
+            // 로그인이 안 되어 있을 때만 팝업을 띄움
             showToast("구글 인증이 필요합니다.");
             postAuthAction.current = action;
-            authInProgress.current = true;
             
-            // prompt: 'consent'를 제거하여 세션이 있으면 자동으로 로그인되게 함
+            // prompt: 'consent'를 제거해야 매번 계정 선택창이 뜨지 않습니다.
             tokenClient.requestAccessToken({ prompt: '' });
         }
     };
@@ -317,33 +308,23 @@ const App = () => {
         gisScript.async = true;
         gisScript.defer = true;
         gisScript.onload = () => {
-            const tokenCallback = (resp) => {
-                authInProgress.current = false; // 인증 프로세스 종료 (잠금 해제)
-                if (resp.error) {
-                    showToast("인증에 실패했습니다.");
-                    console.error("Google token error:", resp.error);
-                } 
-                else {
-                    setGisInited(true);
-                    if (postAuthAction.current) {
-                        postAuthAction.current();
-                        postAuthAction.current = null;
-                    } 
-                    else {
-                        loadFromDrive();
-                    }
-                }
-            };
-            
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
                 scope: SCOPES,
-                callback: tokenCallback,
+                callback: (resp) => {
+                    if (resp.error) {
+                        showToast("인증 실패: " + resp.error);
+                        return;
+                    }
+                    setGisInited(true);
+                    // 인증 성공 후, 원래 하려던 작업(저장 등)이 있었다면 실행
+                    if (postAuthAction.current) {
+                        postAuthAction.current();
+                        postAuthAction.current = null;
+                    }
+                },
             });
-
             setGisInited(true);
-
-            tokenClient.requestAccessToken({prompt: ''});
         };
         document.body.appendChild(gisScript);
 
