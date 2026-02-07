@@ -5,26 +5,7 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient;
 
-async function initializeGapiClient(setGapiInitialized) {
-    await gapi.client.init({
-        apiKey: API_KEY,
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-    });
-    setGapiInitialized(true);
-}
 
-window.gapiLoaded = (setGapiInitialized) => {
-    gapi.load('client', () => initializeGapiClient(setGapiInitialized));
-};
-
-window.gisLoaded = (setGisInited) => {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
-    });
-    setGisInited(true);
-};
 
 function handleAuthClick() {
     tokenClient.callback = async (resp) => {
@@ -315,8 +296,40 @@ const App = () => {
     }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast]);
 
     useEffect(() => {
-        window.gapiLoaded(setGapiInitialized);
-        window.gisLoaded(setGisInited);
+        const gapiScript = document.createElement('script');
+        gapiScript.src = 'https://apis.google.com/js/api.js';
+        gapiScript.async = true;
+        gapiScript.defer = true;
+        gapiScript.onload = () => {
+            gapi.load('client', () => {
+                gapi.client.init({
+                    apiKey: API_KEY,
+                    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+                }).then(() => {
+                    setGapiInitialized(true);
+                });
+            });
+        };
+        document.body.appendChild(gapiScript);
+
+        const gisScript = document.createElement('script');
+        gisScript.src = 'https://accounts.google.com/gsi/client';
+        gisScript.async = true;
+        gisScript.defer = true;
+        gisScript.onload = () => {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
+            });
+            setGisInited(true);
+        };
+        document.body.appendChild(gisScript);
+
+        return () => {
+            document.body.removeChild(gapiScript);
+            document.body.removeChild(gisScript);
+        }
     }, [setGapiInitialized, setGisInited]);
 
     useEffect(() => {
@@ -1079,8 +1092,4 @@ const PropField = ({ label, value, onChange, readOnly = false, type = "text", op
 document.addEventListener('DOMContentLoaded', () => {
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(App, null));
-
-    // Expose gapiLoaded and gisLoaded to the global scope
-    window.gapiLoaded = gapiLoaded;
-    window.gisLoaded = gisLoaded;
 });
