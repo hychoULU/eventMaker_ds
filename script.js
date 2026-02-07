@@ -223,9 +223,16 @@ const App = () => {
                     });
                     showToast(`File '${fileName}' created in Google Drive.`);
                 }
-            } catch (error) {
-                console.error("Error uploading to Google Drive:", error);
-                showToast("Failed to save to Google Drive.");
+            } catch (error) 
+            {
+                console.error("상세 에러 로그:", error);
+                
+                // 에러 객체 안의 내용을 문자열로 풀어서 확인
+                const errorBody = error.body ? JSON.parse(error.body) : null;
+                const message = errorBody?.error?.message || error.result?.error?.message || error.message || "알 수 없는 오류";
+                
+                console.log("진짜 에러 메시지:", message);
+                alert("저장 실패 원인: " + message); // 팝업으로 바로 알려줌
             }
         });
     }, [events, nodes, choices, showToast, gapiInitialized, gisInited]);
