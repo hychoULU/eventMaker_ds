@@ -159,11 +159,7 @@ const App = () => {
 
     const uploadToDrive = useCallback(() => {
         executeAfterAuth(async () => {
-            if (!gapiInitialized || !gisInited) {
-                showToast("Google API not initialized. Please try again.");
-                return;
-            }
-
+            // 1. 저장할 데이터를 예쁘게 가공 (기존 로직 유지)
             const data = {
                 "Event시트": events.map(e => ({
                     ...e,
@@ -183,60 +179,76 @@ const App = () => {
                 })
             };
 
+            // 데이터를 문자열(JSON)로 변환
             const fileContent = JSON.stringify(data, null, 2);
             const fileName = `DS_Events.json`;
 
-            showToast("Saving to Google Drive...");
+            showToast("구글 드라이브에 저장 중...");
 
             try {
-                const response = await gapi.client.drive.files.list({
+                // [단계 1] 같은 이름의 파일이 이미 있는지 확인
+                const res = await gapi.client.drive.files.list({
                     q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
-                    fields: 'files(id, name)',
+                    fields: 'files(id)',
                 });
 
-                const files = response.result.files;
+                let fileId = null;
 
-                if (files.length > 0) {
-                    const fileId = files[0].id;
-                    await gapi.client.request({
-                        path: '/upload/drive/v3/files/' + fileId,
-                        method: 'PATCH',
-                        params: { uploadType: 'media' },
-                        headers: { 'Content-Type': 'application/json' },
-                        body: fileContent,
-                    });
-                    showToast(`File '${fileName}' updated in Google Drive.`);
+                if (res.result.files.length > 0) {
+                    // 이미 파일이 있다면 그 ID를 사용 (덮어쓰기)
+                    fileId = res.result.files[0].id;
+                    showToast("기존 파일을 업데이트합니다...");
                 } else {
-                    const fileMetadata = {
-                        name: fileName,
-                        parents: [FOLDER_ID],
-                    };
-                    const form = new FormData();
-                    form.append('metadata', new Blob([JSON.stringify(fileMetadata)], { type: 'application/json' }));
-                    form.append('media', new Blob([fileContent], { type: 'application/json' }));
-
-                    await gapi.client.request({
-                        path: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
-                        method: 'POST',
-                        headers: { 'Content-Type': 'multipart/related' },
-                        body: form,
+                    // [단계 2] 파일이 없다면 '빈 파일(껍데기)' 먼저 생성
+                    // 이렇게 하면 복잡한 multipart 형식을 안 써도 됨
+                    const createRes = await gapi.client.drive.files.create({
+                        resource: {
+                            name: fileName,
+                            parents: [FOLDER_ID],
+                            mimeType: 'application/json'
+                        },
+                        fields: 'id'
                     });
-                    showToast(`File '${fileName}' created in Google Drive.`);
+                    fileId = createRes.result.id;
+                    showToast("새 파일을 생성했습니다...");
                 }
-            } catch (error) 
-            {
-                console.error("상세 에러 로그:", error);
+
+                // [단계 3] 확보된 File ID에 실제 JSON 내용 채워 넣기
+                // uploadType='media'는 내용물만 깔끔하게 보낼 때 사용합니다.
+                await gapi.client.request({
+                    path: '/upload/drive/v3/files/' + fileId,
+                    method: 'PATCH',
+                    params: { 
+                        uploadType: 'media' 
+                    },
+                    headers: {
+                        'Content-Type': 'application/json' // 중요: 내용물이 JSON임을 명시
+                    },
+                    body: fileContent
+                });
+
+                showToast("저장 성공!");
                 
-                // 에러 객체 안의 내용을 문자열로 풀어서 확인
-                const errorBody = error.body ? JSON.parse(error.body) : null;
-                const message = errorBody?.error?.message || error.result?.error?.message || error.message || "알 수 없는 오류";
+            } catch (error) {
+                console.error("Upload Error:", error);
                 
-                console.log("진짜 에러 메시지:", message);
-                alert("저장 실패 원인: " + message); // 팝업으로 바로 알려줌
+                // 에러 메시지 추출 (디버깅용)
+                let errorMsg = "알 수 없는 오류";
+                try {
+                    if (error.body) {
+                        const parsed = JSON.parse(error.body);
+                        errorMsg = parsed.error.message;
+                    } else if (error.result && error.result.error) {
+                        errorMsg = error.result.error.message;
+                    } else {
+                        errorMsg = error.message;
+                    }
+                } catch (e) { errorMsg = error.toString(); }
+
+                alert("저장 실패: " + errorMsg);
             }
         });
-    }, [events, nodes, choices, showToast, gapiInitialized, gisInited]);
-
+    }, [events, nodes, choices, showToast, executeAfterAuth]);
     const loadFromDrive = useCallback(() => {
         executeAfterAuth(async () => {
             if (!gapiInitialized || !gisInited) {
