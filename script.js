@@ -90,16 +90,14 @@ const App = () => {
 
     const executeAfterAuth = (action) => {
         if (!gisInited || !gapiInitialized) {
-            showToast("Google API is loading... Your action will run automatically.");
-            postAuthAction.current = action; // Queue the action
+            showToast("Google API is initializing. Please try again in a moment.");
             return;
         }
 
         if (gapi.client.getToken()) {
             action();
         } else {
-            showToast("Please log in to continue.");
-            postAuthAction.current = action;
+            postAuthAction.current = action; // Set the action to run after login
             tokenClient.requestAccessToken({ prompt: 'consent' });
         }
     };
@@ -153,8 +151,8 @@ const App = () => {
         showToast("Redo Successful");
     }, [redoStack, events, nodes, choices, showToast]);
 
-    const uploadToDrive = useCallback(async () => {
-        const saveAction = async () => {
+    const uploadToDrive = useCallback(() => {
+        executeAfterAuth(async () => {
             if (!gapiInitialized || !gisInited) {
                 showToast("Google API not initialized. Please try again.");
                 return;
@@ -223,13 +221,11 @@ const App = () => {
                 console.error("Error uploading to Google Drive:", error);
                 showToast("Failed to save to Google Drive.");
             }
-        };
+        });
+    }, [events, nodes, choices, showToast, gapiInitialized, gisInited]);
 
-        executeAfterAuth(saveAction);
-    }, [events, nodes, choices, showToast, gapiInitialized, gisInited, executeAfterAuth]);
-
-    const loadFromDrive = useCallback(async () => {
-        const loadAction = async () => {
+    const loadFromDrive = useCallback(() => {
+        executeAfterAuth(async () => {
             if (!gapiInitialized || !gisInited) {
                 showToast("Google API not ready. Please wait a moment.");
                 return;
@@ -280,10 +276,8 @@ const App = () => {
                 console.error("Error loading from Google Drive:", error);
                 showToast("Failed to load from Google Drive.");
             }
-        };
-
-        executeAfterAuth(loadAction);
-    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast, gapiInitialized, gisInited, executeAfterAuth]);
+        });
+    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast, gapiInitialized, gisInited]);
 
     useEffect(() => {
         const gapiScript = document.createElement('script');
