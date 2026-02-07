@@ -84,31 +84,30 @@ const App = () => {
     const [redoStack, setRedoStack] = useState([]);
 
     const executeAfterAuth = (action) => {
-        // 1. React 상태가 아닌, 실제 window 객체에 로드된 라이브러리 확인
-        const isGapiLoaded = window.gapi && window.gapi.client && window.gapi.client.drive;
-        const isGisLoaded = window.google && window.google.accounts && window.google.accounts.oauth2;
+        // 1. React 상태가 아닌, 브라우저 메모리에 로드된 실제 객체 직접 확인
+        const isGapiReady = window.gapi && gapi.client && gapi.client.drive;
+        const isGisReady = window.google && google.accounts && google.accounts.oauth2 && tokenClient;
 
-        if (!isGapiLoaded || !isGisLoaded || !tokenClient) {
-            showToast("Google API 라이브러리를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+        if (!isGapiReady || !isGisReady) {
+            showToast("Google API 라이브러리를 로드 중입니다. 잠시 후 다시 시도해 주세요.");
             return;
         }
 
-        // 2. 현재 유효한 토큰이 있는지 확인
+        // 2. 현재 유효한 토큰(세션)이 있는지 확인
         const token = gapi.client.getToken();
         
         if (token && token.access_token) {
-            // 이미 로그인 되어 있다면 바로 실행
+            // 이미 토큰이 있다면 팝업 없이 바로 실행
             action();
         } else {
-            // 로그인이 안 되어 있을 때만 팝업을 띄움
+            // 토큰이 없을 때만 로그인을 요청
             showToast("구글 인증이 필요합니다.");
             postAuthAction.current = action;
             
-            // prompt: 'consent'를 제거해야 매번 계정 선택창이 뜨지 않습니다.
+            // 중요: prompt를 빈 문자열('')로 설정해야 세션이 있을 때 팝업 없이 자동 로그인됩니다.
             tokenClient.requestAccessToken({ prompt: '' });
         }
     };
-
     // --- Business Logic ---
     const showToast = useCallback((msg) => {
         setToast({ show: true, message: msg });
@@ -316,11 +315,11 @@ const App = () => {
                         showToast("인증 실패: " + resp.error);
                         return;
                     }
-                    setGisInited(true);
-                    // 인증 성공 후, 원래 하려던 작업(저장 등)이 있었다면 실행
+                    // 인증 성공 시 중단되었던 작업(저장 등) 실행
                     if (postAuthAction.current) {
-                        postAuthAction.current();
+                        const actionToRun = postAuthAction.current;
                         postAuthAction.current = null;
+                        actionToRun();
                     }
                 },
             });
