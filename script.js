@@ -84,11 +84,12 @@ const App = () => {
     const canvasRef = useRef(null);
     const elementRefs = useRef({});
     const editingElementRef = useRef(null); // Ref to currently edited DevComment input/textarea
+    const postAuthAction = useRef(null);
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
 
     const executeAfterAuth = (action) => {
-        if (!tokenClient || !gapiInitialized) {
+        if (!gisInited || !gapiInitialized) {
             showToast("Google API not ready. Please wait a moment.");
             return;
         }
@@ -96,17 +97,8 @@ const App = () => {
         if (gapi.client.getToken()) {
             action();
         } else {
-            showToast("Please log in to continue.");
-            tokenClient.callback = (resp) => {
-                if (!resp.error) {
-                    showToast("Authentication successful!");
-                    action();
-                } else {
-                    showToast("Authentication failed or was cancelled.");
-                }
-                // Reset callback to default to avoid re-running old actions
-                tokenClient.callback = (resp) => { if (!resp.error) setGisInited(true); };
-            };
+            showToast("Please log in to save your changes.");
+            postAuthAction.current = action;
             tokenClient.requestAccessToken({ prompt: 'consent' });
         }
     };
@@ -236,63 +228,61 @@ const App = () => {
     }, [events, nodes, choices, showToast, gapiInitialized, gisInited, executeAfterAuth]);
 
     const loadFromDrive = useCallback(async () => {
-        if (!gapiInitialized || !gisInited) {
-            showToast("Google API not initialized. Please try again.");
-            handleAuthClick();
-            return;
-        }
-
-        if (!gapi.client.getToken()) {
-            showToast("Not authenticated. Please refresh the page.");
-            return;
-        }
-
-        const fileName = `DS_Events.json`;
-        showToast("Loading from Google Drive...");
-
-        try {
-            const response = await gapi.client.drive.files.list({
-                q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
-                fields: 'files(id, name)',
-            });
-
-            const files = response.result.files;
-
-            if (files.length > 0) {
-                const fileId = files[0].id;
-                const fileContentResponse = await gapi.client.drive.files.get({
-                    fileId: fileId,
-                    alt: 'media',
-                });
-
-                const data = fileContentResponse.result; // data is already parsed JSON
-
-                recordHistory();
-                const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
-                const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
-                const pC = cS.map(c => {
-                    const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
-                    let tT = "None", tV = "";
-                    if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
-                    else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
-                    else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
-                    return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
-                });
-                const pE = eS.map(e => ({
-                    ...e,
-                    TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n')
-                }));
-                setEvents(pE); setNodes(pN); setChoices(pC);
-                if (eS.length > 0) setSelectedEventId(eS[0].EventID);
-                showToast(`File '${fileName}' loaded from Google Drive.`);
-            } else {
-                showToast(`File '${fileName}' not found in Google Drive.`);
+        const loadAction = async () => {
+            if (!gapiInitialized || !gisInited) {
+                showToast("Google API not ready. Please wait a moment.");
+                return;
             }
-        } catch (error) {
-            console.error("Error loading from Google Drive:", error);
-            showToast("Failed to load from Google Drive.");
-        }
-    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast]);
+    
+            const fileName = `DS_Events.json`;
+            showToast("Loading from Google Drive...");
+    
+            try {
+                const response = await gapi.client.drive.files.list({
+                    q: `'${FOLDER_ID}' in parents and name='${fileName}' and trashed=false`,
+                    fields: 'files(id, name)',
+                });
+    
+                const files = response.result.files;
+    
+                if (files.length > 0) {
+                    const fileId = files[0].id;
+                    const fileContentResponse = await gapi.client.drive.files.get({
+                        fileId: fileId,
+                        alt: 'media',
+                    });
+    
+                    const data = fileContentResponse.result;
+    
+                    recordHistory();
+                    const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
+                    const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+                    const pC = cS.map(c => {
+                        const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
+                        let tT = "None", tV = "";
+                        if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
+                        else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
+                        else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
+                        return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
+                    });
+                    const pE = eS.map(e => ({
+                        ...e,
+                        TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n')
+                    }));
+                    setEvents(pE); setNodes(pN); setChoices(pC);
+                    if (eS.length > 0) setSelectedEventId(eS[0].EventID);
+                    showToast(`File '${fileName}' loaded from Google Drive.`);
+                } else {
+                    showToast(`File '${fileName}' not found in Google Drive.`);
+                }
+            } catch (error) {
+                console.error("Error loading from Google Drive:", error);
+                showToast("Failed to load from Google Drive.");
+            }
+        };
+
+        executeAfterAuth(loadAction);
+    }, [recordHistory, setEvents, setNodes, setChoices, setSelectedEventId, showToast, gapiInitialized, gisInited, executeAfterAuth]);
 
     useEffect(() => {
         const gapiScript = document.createElement('script');
@@ -316,21 +306,27 @@ const App = () => {
         gisScript.async = true;
         gisScript.defer = true;
         gisScript.onload = () => {
-            const callback = async (resp) => {
+            const tokenCallback = (resp) => {
                 if (resp.error) {
-                    throw (resp);
+                    showToast("Authentication failed.");
+                    console.error("Google token error:", resp.error);
+                } else {
+                    if (postAuthAction.current) {
+                        postAuthAction.current();
+                        postAuthAction.current = null; // Clear the action after executing
+                    }
                 }
-                setGisInited(true);
             };
-
+            
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
                 scope: SCOPES,
-                callback: callback,
+                callback: tokenCallback,
             });
-            
-            // Automatically request a token on load.
-            // If the user is already signed in and has granted consent, they will not see a consent screen.
+
+            setGisInited(true); // GIS is now initialized and ready to be used
+
+            // Attempt a silent login on page load.
             tokenClient.requestAccessToken({prompt: ''});
         };
         document.body.appendChild(gisScript);
@@ -925,7 +921,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.0.9"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.0"),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
                     ['Fixed', 'Random'].map(type => (
                         React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },

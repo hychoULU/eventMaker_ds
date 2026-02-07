@@ -5,10 +5,7 @@ ex) Ds Event Editor - v3.0.4 -> Ds Event Editor - v3.0.5.    VisualEditor V3.0.4
 ex) v3.0.10 - X
 v3.1.0 - O
 
-index.html, script.js, style.css 세 파일에 대해서,  
-매번 수정사항이 있을 때 마다 웹 페이지 내에 표기된 버전을 하나올리고, 
-Update v+현재 버전 으로 메인 브랜치에 커밋을 올리고 push 한다.
-ex) 커밋 내용 : Update v3.0.5
+반드시. 대화가 끝날 때 마다, 커밋을 하거나 Push 하지 말고 어떤 점이 변경되었는지 말 해줄 것.
 
 1. 기본적인 시트 Export 형식
 파일 중 DS_SaveSample.json 참고.
@@ -81,7 +78,7 @@ ChoiceR0000
 
 
 4. 
-비주얼 이벤트 에디터(Visual Event Editor) 시스템 명세서 (v3.0.9 기준)
+비주얼 이벤트 에디터(Visual Event Editor) 시스템 명세서 (v3.1.0 기준)
 
 1) 데이터 구조 및 논리 규칙
 

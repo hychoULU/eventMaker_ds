@@ -1,0 +1,105 @@
+{
+  "Event시트": [
+    {
+      "EventID": "Event_Random0",
+      "DevComment": "도박꾼",
+      "StartNodeID": "NodeR000",
+      "StartCondition": "None",
+      "TargetUnitCondition": "None",
+      "EventType": "Random",
+      "Weight": 100,
+      "IsRepeatable": false,
+      "CoolDown": 0
+    }
+  ],
+  "Node시트": [
+    {
+      "NodeID": "NodeR000",
+      "DevComment": "{0}이 단원들과 노름판을 벌이고 주사위 내기를 하는 것을 당신이 빤히 바라보자, 그의 관심이 당신에게로 향합니다.\n\n\"마침 잘 오셨습니다 단장. 저랑 승부 한판 어떠십니까?\"\n\n그는 간단하게 게임 규칙을 설명합니다.\n\n\"오직 운으로만 결정되니 그 무엇도 이 보다 공평할 수는 없을 겁니다.\"\n\n그가 당신의 대답을 기다리며 응시합니다.",
+      "LinkedEventID": "Event_Random0",
+      "NodeType": "Normal",
+      "ChoiceIDs": [
+        "ChoiceR0000",
+        "ChoiceR0001",
+        "ChoiceR0002"
+      ]
+    },
+    {
+      "NodeID": "NodeR010",
+      "DevComment": "당신이 이겼습니다.",
+      "LinkedEventID": "Event_Random0",
+      "NodeType": "Normal",
+      "ChoiceIDs": [
+        "ChoiceR0100"
+      ]
+    },
+    {
+      "NodeID": "NodeR011",
+      "DevComment": "당신이 졌습니다. {0}이 실실 웃습니다",
+      "LinkedEventID": "Event_Random0",
+      "NodeType": "Normal",
+      "ChoiceIDs": [
+        "ChoiceR0110"
+      ]
+    },
+    {
+      "NodeID": "NodeR012",
+      "DevComment": "전부 몰수! {0}이 울상을 짓습니다.",
+      "LinkedEventID": "Event_Random0",
+      "NodeType": "Normal",
+      "ChoiceIDs": [
+        "ChoiceR0120"
+      ]
+    }
+  ],
+  "Choice시트": [
+    {
+      "ChoiceID": "ChoiceR0000",
+      "DevComment": "나한테 지고 봐달라고 하지나 말라고",
+      "LinkedNodeID": "NodeR000",
+      "ActiveCondition": "None",
+      "OnSelectAction": "ShowNextNode_NodeR010_100,ShowNextNode_NodeR011_100",
+      "ActiveTooltipType": "Probability_ChoiceR0100_ChoiceR0110"
+    },
+    {
+      "ChoiceID": "ChoiceR0001",
+      "DevComment": "이렇게 기강이 해이할 수가? 전부 몰수하겠네.",
+      "LinkedNodeID": "NodeR000",
+      "ActiveCondition": "None",
+      "OnSelectAction": "ShowNextNode_NodeR012_100",
+      "ActiveTooltipType": "ShowChoiceAction_ChoiceR0120"
+    },
+    {
+      "ChoiceID": "ChoiceR0002",
+      "DevComment": "자네들이나 많이 하게.",
+      "LinkedNodeID": "NodeR000",
+      "ActiveCondition": "None",
+      "OnSelectAction": "Exit",
+      "ActiveTooltipType": "None"
+    },
+    {
+      "ChoiceID": "ChoiceR0100",
+      "DevComment": "내놔잇!",
+      "LinkedNodeID": "NodeR010",
+      "ActiveCondition": "None",
+      "OnSelectAction": "ModifyGold_100",
+      "ActiveTooltipType": "None"
+    },
+    {
+      "ChoiceID": "ChoiceR0120",
+      "DevComment": "후후 좋은곳에 쓴다구",
+      "LinkedNodeID": "NodeR012",
+      "ActiveCondition": "None",
+      "OnSelectAction": "ModifyGold_50,AddAffecter_Tyranny_ALL",
+      "ActiveTooltipType": "None"
+    },
+    {
+      "ChoiceID": "ChoiceR0110",
+      "DevComment": "뭔가 속임수를 쓴것이 분명해!",
+      "LinkedNodeID": "NodeR011",
+      "ActiveCondition": "None",
+      "OnSelectAction": "",
+      "ActiveTooltipType": "None"
+    }
+  ]
+}
