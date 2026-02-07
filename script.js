@@ -90,24 +90,31 @@ const App = () => {
     const [redoStack, setRedoStack] = useState([]);
 
     const executeAfterAuth = (action) => {
-        if (authInProgress.current) {
-            showToast("Authentication is already in progress.");
+        // 1. 라이브러리 로드 여부 직접 확인
+        const isGapiReady = typeof gapi !== 'undefined' && gapi.client && gapi.client.drive;
+        const isGisReady = typeof tokenClient !== 'undefined' && tokenClient !== null;
+
+        if (!isGapiReady || !isGisReady) {
+            showToast("Google API가 아직 준비되지 않았습니다. 잠시만 기다려주세요.");
             return;
         }
 
-        if (!gisInited || !gapiInitialized) {
-            showToast("Google API is initializing... Your action will run automatically.");
-            postAuthAction.current = action; // Queue the action
-            return;
-        }
+        if (authInProgress.current) return;
 
-        if (gapi.client.getToken()) {
+        // 2. 현재 유효한 토큰이 있는지 확인
+        const token = gapi.client.getToken();
+        
+        if (token && token.access_token) {
+            // 토큰이 있으면 즉시 실행
             action();
         } else {
-            showToast("Please log in to continue.");
+            // 토큰이 없으면 로그인 시도
+            showToast("구글 인증이 필요합니다.");
             postAuthAction.current = action;
-            authInProgress.current = true; // Set the lock
-            tokenClient.requestAccessToken({ prompt: 'consent' });
+            authInProgress.current = true;
+            
+            // prompt: 'consent'를 제거하여 세션이 있으면 자동으로 로그인되게 함
+            tokenClient.requestAccessToken({ prompt: '' });
         }
     };
 
@@ -311,15 +318,18 @@ const App = () => {
         gisScript.defer = true;
         gisScript.onload = () => {
             const tokenCallback = (resp) => {
+                authInProgress.current = false; // 인증 프로세스 종료 (잠금 해제)
                 if (resp.error) {
-                    showToast("Authentication failed.");
+                    showToast("인증에 실패했습니다.");
                     console.error("Google token error:", resp.error);
-                } else {
+                } 
+                else {
+                    setGisInited(true);
                     if (postAuthAction.current) {
                         postAuthAction.current();
-                        postAuthAction.current = null; // Clear the action after executing
-                    } else {
-                        // If there's no pending action, just load the data
+                        postAuthAction.current = null;
+                    } 
+                    else {
                         loadFromDrive();
                     }
                 }

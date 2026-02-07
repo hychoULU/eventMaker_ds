@@ -1,4 +1,5 @@
-0. 기능을 추가할 때 마다, 반드시 버전을하나씩 올린다. 
+0. 기능을 추가할 때 마다, index와 script.js에서 버전을 표기 중인 곳의 버전을, 반드시 버전을하나씩 올린다. 
+Gemini.md를 고치라는 말이 아님.
 ex) Ds Event Editor - v3.0.4 -> Ds Event Editor - v3.0.5.    VisualEditor V3.0.4 ->  VisualEditor V3.0.5 등 버전이 들어가는 모든 곳의 버전을 하나씩 올려야 한다.
 
 버전 맨 끝이 두 자리수가 넘어간다면, 가운데 자리를 하나 버전을 올린다.
