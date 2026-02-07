@@ -80,6 +80,7 @@ const App = () => {
     const editingElementRef = useRef(null); // Ref to currently edited DevComment input/textarea
     const postAuthAction = useRef(null);
     const authInProgress = useRef(false);
+    const hasAutoLoaded = useRef(false);
     const [undoStack, setUndoStack] = useState([]);
     const [redoStack, setRedoStack] = useState([]);
 
@@ -111,7 +112,7 @@ const App = () => {
     // --- Business Logic ---
     const showToast = useCallback((msg) => {
         setToast({ show: true, message: msg });
-        setTimeout(() => setToast({ show: false, message: "" }), 2500);
+        //setTimeout(() => setToast({ show: false, message: "" }), 2500);
     }, []);
 
     const recordHistory = useCallback(() => {
@@ -351,7 +352,14 @@ const App = () => {
             document.body.removeChild(gisScript);
         }
     }, [setGapiInitialized, setGisInited, loadFromDrive]);
-
+    useEffect(() => {
+        // 두 API가 모두 준비되었고, 아직 자동 로드를 안 했다면?
+        if (gapiInitialized && gisInited && !hasAutoLoaded.current) {
+            console.log("🚀 페이지 로드 완료: 구글 드라이브에서 파일 불러오기 시도");
+            hasAutoLoaded.current = true; // "나 이미 로드했어" 라고 표시
+            loadFromDrive();
+        }
+    }, [gapiInitialized, gisInited, loadFromDrive]);
 
 
     const handleCopy = useCallback(() => {
