@@ -7,23 +7,7 @@ let tokenClient;
 
 
 
-function handleAuthClick() {
-    tokenClient.callback = async (resp) => {
-        if (resp.error) {
-            throw (resp);
-        }
-        // We don't need to list files here, just ensure auth is successful
-        console.log('Google Drive authenticated.');
-    };
 
-    if (gapi.client.getToken() === null) {
-        // No token available, initiate authorization flow.
-        tokenClient.requestAccessToken({prompt: 'consent'});
-    } else {
-        // Token already exists, refresh or use directly.
-        tokenClient.requestAccessToken({prompt: ''});
-    }
-}
 
 
 
@@ -159,10 +143,8 @@ const App = () => {
             return;
         }
 
-        const authInstance = gapi.auth.getToken();
-        if (!authInstance) {
-            showToast("Not authenticated with Google Drive. Please authenticate.");
-            handleAuthClick();
+        if (!gapi.client.getToken()) {
+            showToast("Not authenticated. Please refresh the page.");
             return;
         }
 
@@ -241,10 +223,8 @@ const App = () => {
             return;
         }
 
-        const authInstance = gapi.auth.getToken();
-        if (!authInstance) {
-            showToast("Not authenticated with Google Drive. Please authenticate.");
-            handleAuthClick();
+        if (!gapi.client.getToken()) {
+            showToast("Not authenticated. Please refresh the page.");
             return;
         }
 
@@ -317,12 +297,22 @@ const App = () => {
         gisScript.async = true;
         gisScript.defer = true;
         gisScript.onload = () => {
+            const callback = async (resp) => {
+                if (resp.error) {
+                    throw (resp);
+                }
+                setGisInited(true);
+            };
+
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
                 scope: SCOPES,
-                callback: '', // A blank callback is required. The callback will be set in the handleAuthClick function.
+                callback: callback,
             });
-            setGisInited(true);
+            
+            // Automatically request a token on load.
+            // If the user is already signed in and has granted consent, they will not see a consent screen.
+            tokenClient.requestAccessToken({prompt: ''});
         };
         document.body.appendChild(gisScript);
 
@@ -334,10 +324,9 @@ const App = () => {
 
     useEffect(() => {
         if (gapiInitialized && gisInited) {
-            handleAuthClick(); // Automatically attempt authentication on load
             loadFromDrive(); // Attempt to load from drive after authentication
         }
-    }, [gapiInitialized, gisInited, loadFromDrive]); // Added loadFromDrive to dependency array
+    }, [gapiInitialized, gisInited, loadFromDrive]);
 
 
 
