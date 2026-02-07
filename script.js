@@ -90,14 +90,15 @@ const App = () => {
 
     const executeAfterAuth = (action) => {
         if (!gisInited || !gapiInitialized) {
-            showToast("Google API not ready. Please wait a moment.");
+            showToast("Google API is loading... Your action will run automatically.");
+            postAuthAction.current = action; // Queue the action
             return;
         }
 
         if (gapi.client.getToken()) {
             action();
         } else {
-            showToast("Please log in to save your changes.");
+            showToast("Please log in to continue.");
             postAuthAction.current = action;
             tokenClient.requestAccessToken({ prompt: 'consent' });
         }
@@ -314,6 +315,9 @@ const App = () => {
                     if (postAuthAction.current) {
                         postAuthAction.current();
                         postAuthAction.current = null; // Clear the action after executing
+                    } else {
+                        // If there's no pending action, just load the data
+                        loadFromDrive();
                     }
                 }
             };
@@ -324,9 +328,8 @@ const App = () => {
                 callback: tokenCallback,
             });
 
-            setGisInited(true); // GIS is now initialized and ready to be used
+            setGisInited(true);
 
-            // Attempt a silent login on page load.
             tokenClient.requestAccessToken({prompt: ''});
         };
         document.body.appendChild(gisScript);
@@ -335,13 +338,7 @@ const App = () => {
             document.body.removeChild(gapiScript);
             document.body.removeChild(gisScript);
         }
-    }, [setGapiInitialized, setGisInited]);
-
-    useEffect(() => {
-        if (gapiInitialized && gisInited) {
-            loadFromDrive(); // Attempt to load from drive after authentication
-        }
-    }, [gapiInitialized, gisInited, loadFromDrive]);
+    }, [setGapiInitialized, setGisInited, loadFromDrive]);
 
 
 
