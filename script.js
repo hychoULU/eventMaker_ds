@@ -938,9 +938,9 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.0"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.1"),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
-                    ['Fixed', 'Random'].map(type => (
+                    ['Fixed', 'Random', 'Npc'].map(type => (
                         React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },
                             React.createElement("div", { 
                                 className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
@@ -956,8 +956,8 @@ const App = () => {
                             !collapsedSections[type] && events.filter(e => e.EventType === type).map(ev => (
                                 React.createElement("div", { key: ev.EventID, className: "group relative mb-1.5 font-bold", onContextMenu: (e) => handleContextMenu(e, 'event', ev.EventID) },
                                     React.createElement("button", { onClick: () => { setSelectedEventId(ev.EventID); setSelectedElement({ type: 'event', id: ev.EventID }); }, className: `w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-400 font-bold' : 'hover:bg-gray-100 font-bold'}` },
-                                        React.createElement("div", { className: "text-xs truncate font-bold" }, ev.EventID),
-                                        React.createElement("div", { className: "text-[10px] truncate opacity-60 font-medium" }, ev.DevComment)
+                                        React.createElement("div", { className: "text-sm truncate font-bold" }, ev.DevComment),
+                                        React.createElement("div", { className: "text-[10px] truncate opacity-60 font-medium" }, ev.EventID)
                                     ),
                                     React.createElement("button", { onClick: (e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'event', id: ev.EventID }); }, className: `absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 transition-all ${selectedEventId === ev.EventID ? 'text-white' : 'text-gray-300 hover:text-red-500'}` }, React.createElement(Icon, { name: "Trash2", size: 14 }))
                                 )
