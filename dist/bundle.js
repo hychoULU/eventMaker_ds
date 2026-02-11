@@ -1582,7 +1582,7 @@
             return import_react5.default.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement(PropField_default, { label: "Node ID", value: node.NodeID, readOnly: true }), import_react5.default.createElement(PropField_default, { label: "Type", value: node.NodeType, onChange: (v) => {
               recordHistory();
               setNodes(nodes.map((n) => n.NodeID === node.NodeID ? { ...n, NodeType: v } : n));
-            }, type: "select", options: ["Normal", "Reward", "Combat", "End"] }), import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: node.DevComment, onChange: (v) => {
+            }, type: "select", options: ["Normal", "Hidden"] }), import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: node.DevComment, onChange: (v) => {
               recordHistory();
               setNodes(nodes.map((n) => n.NodeID === node.NodeID ? { ...n, DevComment: v } : n));
             }, type: "textarea" }));
