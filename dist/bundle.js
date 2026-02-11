@@ -1348,7 +1348,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.3"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.4"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1558,6 +1558,10 @@
               import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: ev.DevComment, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, DevComment: v } : e));
+              }, type: "textarea" }),
+              import_react5.default.createElement(PropField_default, { label: "Start Condition", value: ev.StartCondition, onChange: (v) => {
+                recordHistory();
+                setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, StartCondition: v } : e));
               }, type: "textarea" }),
               import_react5.default.createElement(PropField_default, { label: "Target Unit Condition", value: ev.TargetUnitCondition, onChange: (v) => {
                 recordHistory();
