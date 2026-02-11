@@ -53,7 +53,10 @@
       gapi.load("client", () => {
         gapi.client.init({
           apiKey: API_KEY,
-          discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"]
+          discoveryDocs: [
+            "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+            "https://www.googleapis.com/discovery/v1/apis/files/v3/rest"
+          ]
         }).then(() => {
           setGapiInitialized(true);
         });
@@ -200,7 +203,7 @@
           fileId,
           alt: "media"
         });
-        const data = fileContentResponse.result;
+        const data = typeof fileContentResponse.body === "string" ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
         const pN = nS.map((n) => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
@@ -1342,7 +1345,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.7"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.8"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },

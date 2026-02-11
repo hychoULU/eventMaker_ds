@@ -12,7 +12,10 @@ export const initGoogleApis = (setGapiInitialized, setGisInited, showToast, load
         gapi.load('client', () => {
             gapi.client.init({
                 apiKey: API_KEY,
-                discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+                discoveryDocs: [
+                    'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
+                    'https://www.googleapis.com/discovery/v1/apis/files/v3/rest' 
+                ],
             }).then(() => {
                 setGapiInitialized(true);
             });
@@ -174,8 +177,9 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
                 fileId: fileId,
                 alt: 'media',
             });
+            
+            const data = typeof fileContentResponse.body === 'string' ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
 
-            const data = fileContentResponse.result;
 
             recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
