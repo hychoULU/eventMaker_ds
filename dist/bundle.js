@@ -198,9 +198,12 @@
       const files = response.result.files;
       if (files.length > 0) {
         const fileId = files[0].id;
-        const fileContentResponse = await gapi.client.drive.files.get({
-          fileId,
-          alt: "media"
+        const fileContentResponse = await gapi.client.request({
+          path: `/drive/v3/files/${fileId}`,
+          method: "GET",
+          params: {
+            alt: "media"
+          }
         });
         const data = typeof fileContentResponse.body === "string" ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
         recordHistory();
@@ -1344,7 +1347,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.9"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.0"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },

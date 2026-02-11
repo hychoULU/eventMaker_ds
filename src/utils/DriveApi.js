@@ -171,14 +171,16 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
         const files = response.result.files;
 
         if (files.length > 0) {
-            const fileId = files[0].id;
-            const fileContentResponse = await gapi.client.drive.files.get({
-                fileId: fileId,
-                alt: 'media',
-            });
+                        const fileId = files[0].id;
+                        const fileContentResponse = await gapi.client.request({
+                            path: `/drive/v3/files/${fileId}`,
+                            method: 'GET',
+                            params: {
+                                alt: 'media'
+                            }
+                        });
             
-            const data = typeof fileContentResponse.body === 'string' ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
-
+                        const data = typeof fileContentResponse.body === 'string' ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
 
             recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
