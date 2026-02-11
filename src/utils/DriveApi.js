@@ -14,7 +14,6 @@ export const initGoogleApis = (setGapiInitialized, setGisInited, showToast, load
                 apiKey: API_KEY,
                 discoveryDocs: [
                     'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
-                    'https://www.googleapis.com/discovery/v1/apis/files/v3/rest' 
                 ],
             }).then(() => {
                 setGapiInitialized(true);

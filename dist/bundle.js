@@ -54,8 +54,7 @@
         gapi.client.init({
           apiKey: API_KEY,
           discoveryDocs: [
-            "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
-            "https://www.googleapis.com/discovery/v1/apis/files/v3/rest"
+            "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
           ]
         }).then(() => {
           setGapiInitialized(true);
@@ -1345,7 +1344,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.8"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.9"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
