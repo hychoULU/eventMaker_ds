@@ -37,7 +37,6 @@
 
   // src/utils/constants.js
   var CLIENT_ID = "417625071700-296k9dfgaedqhrgkr66vrbv9uea6p1gs.apps.googleusercontent.com";
-  var API_KEY = "AIzaSyAp5YPAyypfkfeBP9GqFuhbRMZWsVF8abk";
   var FOLDER_ID = "1aVLAXF9mSMgBBq9KonoDEjVNOe_XaTg";
   var SCOPES = "https://www.googleapis.com/auth/drive";
 
@@ -52,7 +51,6 @@
     gapiScript.onload = () => {
       gapi.load("client", () => {
         gapi.client.init({
-          apiKey: API_KEY,
           discoveryDocs: [
             "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
           ]
@@ -1348,7 +1346,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.1"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.2"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
