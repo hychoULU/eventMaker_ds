@@ -70,11 +70,12 @@
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
-        callback: (resp) => {
-          if (resp.error) {
-            showToast("\uC778\uC99D \uC2E4\uD328: " + resp.error);
+        callback: (tokenResponse) => {
+          if (tokenResponse.error) {
+            showToast("\uC778\uC99D \uC2E4\uD328: " + tokenResponse.error);
             return;
           }
+          gapi.client.setToken(tokenResponse);
           if (postAuthAction) {
             const actionToRun = postAuthAction;
             postAuthAction = null;
@@ -1347,7 +1348,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.0"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.1"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },

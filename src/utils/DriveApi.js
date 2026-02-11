@@ -30,11 +30,12 @@ export const initGoogleApis = (setGapiInitialized, setGisInited, showToast, load
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: CLIENT_ID,
             scope: SCOPES,
-            callback: (resp) => {
-                if (resp.error) {
-                    showToast("인증 실패: " + resp.error);
+            callback: (tokenResponse) => {
+                if (tokenResponse.error) {
+                    showToast("인증 실패: " + tokenResponse.error);
                     return;
                 }
+                gapi.client.setToken(tokenResponse);
                 if (postAuthAction) {
                     const actionToRun = postAuthAction;
                     postAuthAction = null;
