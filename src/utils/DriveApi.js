@@ -11,6 +11,7 @@ export const initGoogleApis = (setGapiInitialized, setGisInited, showToast, load
     gapiScript.onload = () => {
         gapi.load('client', () => {
             gapi.client.init({
+                apiKey: API_KEY,
                 discoveryDocs: [
                     'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
                 ],
