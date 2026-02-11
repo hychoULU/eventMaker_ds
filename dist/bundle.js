@@ -478,6 +478,189 @@
     };
   };
 
+  // src/utils/eventDragDrop.js
+  var replaceIdsInString = (str, idMap) => {
+    if (!str) return str;
+    let newStr = str;
+    const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
+    for (const oldId of sortedOldIds) {
+      newStr = newStr.split(oldId).join(idMap[oldId]);
+    }
+    return newStr;
+  };
+  var reindexDataAfterDrag = (draggedEventId, targetEventId, newType, allEvents, allNodes, allChoices) => {
+    const reorderedEvents = JSON.parse(JSON.stringify(allEvents));
+    const draggedEventIndex = reorderedEvents.findIndex((e) => e.EventID === draggedEventId);
+    if (draggedEventIndex === -1) return { newEvents: allEvents, newNodes: allNodes, newChoices: allChoices, updatedSelectedEventId: draggedEventId };
+    const [draggedEvent] = reorderedEvents.splice(draggedEventIndex, 1);
+    const originalType = draggedEvent.EventType;
+    draggedEvent.EventType = newType;
+    let targetIndex = -1;
+    if (targetEventId) {
+      targetIndex = reorderedEvents.findIndex((e) => e.EventID === targetEventId);
+    }
+    if (targetIndex !== -1) {
+      reorderedEvents.splice(targetIndex, 0, draggedEvent);
+    } else {
+      let lastIndexOfType = -1;
+      for (let i = reorderedEvents.length - 1; i >= 0; i--) {
+        if (reorderedEvents[i].EventType === newType) {
+          lastIndexOfType = i;
+          break;
+        }
+      }
+      reorderedEvents.splice(lastIndexOfType + 1, 0, draggedEvent);
+    }
+    const idMap = {};
+    const typeCounters = {};
+    reorderedEvents.forEach((event) => {
+      const eventType = event.EventType;
+      typeCounters[eventType] = typeCounters[eventType] || 0;
+      const oldEventId = event.EventID;
+      const newEventId = `Event_${eventType}${typeCounters[eventType]}`;
+      if (oldEventId !== newEventId) {
+        idMap[oldEventId] = newEventId;
+      }
+      typeCounters[eventType]++;
+    });
+    allEvents.forEach((event) => {
+      const oldEventId = event.EventID;
+      const newEventId = idMap[oldEventId];
+      if (newEventId) {
+        const oldEventSummary = getEventSummary(oldEventId);
+        const newEventSummary = getEventSummary(newEventId);
+        allNodes.filter((n) => n.LinkedEventID === oldEventId).forEach((node) => {
+          const oldNodeId = node.NodeID;
+          const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
+          idMap[oldNodeId] = newNodeId;
+          allChoices.filter((c) => c.LinkedNodeID === oldNodeId).forEach((choice) => {
+            const oldChoiceId = choice.ChoiceID;
+            const newChoiceId = oldChoiceId.replace(`Choice${oldEventSummary}`, `Choice${newEventSummary}`);
+            idMap[oldChoiceId] = newChoiceId;
+          });
+        });
+      }
+    });
+    let newEvents = JSON.parse(JSON.stringify(allEvents));
+    let newNodes = JSON.parse(JSON.stringify(allNodes));
+    let newChoices = JSON.parse(JSON.stringify(allChoices));
+    newEvents = newEvents.map((e) => {
+      const wasDragged = e.EventID === draggedEventId;
+      const needsTypeChange = wasDragged && originalType !== newType;
+      return {
+        ...e,
+        EventID: idMap[e.EventID] || e.EventID,
+        EventType: needsTypeChange ? newType : e.EventType,
+        StartNodeID: idMap[e.StartNodeID] || e.StartNodeID
+      };
+    }).sort((a, b) => {
+      const typeA = a.EventType, typeB = b.EventType;
+      const indexA = parseInt(a.EventID.match(/\d+$/)[0]);
+      const indexB = parseInt(b.EventID.match(/\d+$/)[0]);
+      const typeOrder = ["Fixed", "Random", "Npc"];
+      if (typeA !== typeB) return typeOrder.indexOf(typeA) - typeOrder.indexOf(typeB);
+      return indexA - indexB;
+    });
+    newNodes = newNodes.map((n) => ({
+      ...n,
+      NodeID: idMap[n.NodeID] || n.NodeID,
+      LinkedEventID: idMap[n.LinkedEventID] || n.LinkedEventID,
+      ChoiceIDs: n.ChoiceIDs.map((cid) => idMap[cid] || cid)
+    }));
+    newChoices = newChoices.map((c) => ({
+      ...c,
+      ChoiceID: idMap[c.ChoiceID] || c.ChoiceID,
+      LinkedNodeID: idMap[c.LinkedNodeID] || c.LinkedNodeID,
+      OnSelectAction: replaceIdsInString(c.OnSelectAction, idMap),
+      ActiveTooltipValue: replaceIdsInString(c.ActiveTooltipValue, idMap)
+    }));
+    return {
+      newEvents,
+      newNodes,
+      newChoices,
+      updatedSelectedEventId: idMap[draggedEventId] || draggedEventId
+    };
+  };
+
+  // src/utils/eventReindexing.js
+  var replaceIdsInString2 = (str, idMap) => {
+    if (!str) return str;
+    let newStr = str;
+    const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
+    for (const oldId of sortedOldIds) {
+      newStr = newStr.split(oldId).join(idMap[oldId]);
+    }
+    return newStr;
+  };
+  var reindexDataAfterDeletion = (deletedEventId, currentEvents, currentNodes, currentChoices) => {
+    const deletedEvent = currentEvents.find((e) => e.EventID === deletedEventId);
+    if (!deletedEvent) {
+      return { newEvents: currentEvents, newNodes: currentNodes, newChoices: currentChoices };
+    }
+    const { EventType } = deletedEvent;
+    const deletedIndex = parseInt(deletedEventId.match(/\d+$/)[0]);
+    let newEvents = currentEvents.filter((e) => e.EventID !== deletedEventId);
+    const nodesToDelete = currentNodes.filter((n) => n.LinkedEventID === deletedEventId).map((n) => n.NodeID);
+    let newNodes = currentNodes.filter((n) => n.LinkedEventID !== deletedEventId);
+    let newChoices = currentChoices.filter((c) => !nodesToDelete.includes(c.LinkedNodeID));
+    const eventsToReindex = newEvents.filter((e) => e.EventType === EventType && parseInt(e.EventID.match(/\d+$/)[0]) > deletedIndex).sort((a, b) => parseInt(a.EventID.match(/\d+$/)[0]) - parseInt(b.EventID.match(/\d+$/)[0]));
+    if (eventsToReindex.length === 0) {
+      return { newEvents, newNodes, newChoices };
+    }
+    const idMap = {};
+    eventsToReindex.forEach((event) => {
+      const oldEventId = event.EventID;
+      const oldIndex = parseInt(oldEventId.match(/\d+$/)[0]);
+      const newIndex = oldIndex - 1;
+      const newEventId = `Event_${EventType}${newIndex}`;
+      idMap[oldEventId] = newEventId;
+      const oldEventSummary = getEventSummary(oldEventId);
+      const newEventSummary = getEventSummary(newEventId);
+      const eventNodes = newNodes.filter((n) => n.LinkedEventID === oldEventId);
+      eventNodes.forEach((node) => {
+        const oldNodeId = node.NodeID;
+        const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
+        idMap[oldNodeId] = newNodeId;
+        const nodeChoices = newChoices.filter((c) => c.LinkedNodeID === oldNodeId);
+        nodeChoices.forEach((choice) => {
+          const oldChoiceId = choice.ChoiceID;
+          const newChoiceId = oldChoiceId.replace(`Choice${oldEventSummary}`, `Choice${newEventSummary}`);
+          idMap[oldChoiceId] = newChoiceId;
+        });
+      });
+    });
+    newEvents = newEvents.map((event) => {
+      const newEventId = idMap[event.EventID] || event.EventID;
+      return {
+        ...event,
+        EventID: newEventId,
+        StartNodeID: idMap[event.StartNodeID] || event.StartNodeID
+      };
+    });
+    newNodes = newNodes.map((node) => {
+      const newNodeId = idMap[node.NodeID] || node.NodeID;
+      const newLinkedEventId = idMap[node.LinkedEventID] || node.LinkedEventID;
+      return {
+        ...node,
+        NodeID: newNodeId,
+        LinkedEventID: newLinkedEventId,
+        ChoiceIDs: node.ChoiceIDs.map((cid) => idMap[cid] || cid)
+      };
+    });
+    newChoices = newChoices.map((choice) => {
+      const newChoiceId = idMap[choice.ChoiceID] || choice.ChoiceID;
+      const newLinkedNodeId = idMap[choice.LinkedNodeID] || choice.LinkedNodeID;
+      return {
+        ...choice,
+        ChoiceID: newChoiceId,
+        LinkedNodeID: newLinkedNodeId,
+        OnSelectAction: replaceIdsInString2(choice.OnSelectAction, idMap),
+        ActiveTooltipValue: replaceIdsInString2(choice.ActiveTooltipValue, idMap)
+      };
+    });
+    return { newEvents, newNodes, newChoices };
+  };
+
   // src/App.js
   var App = () => {
     const {
@@ -540,6 +723,7 @@
       showToast,
       recordHistory
     } = useGlobalStates();
+    const [draggingEventId, setDraggingEventId] = import_react5.default.useState(null);
     const {
       createEvent,
       createNode,
@@ -665,7 +849,7 @@
           LinkedNodeID: newLinkedNodeId
         };
       });
-      const replaceIdsInString = (str) => {
+      const replaceIdsInString3 = (str) => {
         if (!str) return str;
         let newStr = str;
         for (const oldId in idMap) {
@@ -674,8 +858,8 @@
         return newStr;
       };
       newChoices.forEach((choice) => {
-        choice.OnSelectAction = replaceIdsInString(choice.OnSelectAction);
-        choice.ActiveTooltipValue = replaceIdsInString(choice.ActiveTooltipValue);
+        choice.OnSelectAction = replaceIdsInString3(choice.OnSelectAction);
+        choice.ActiveTooltipValue = replaceIdsInString3(choice.ActiveTooltipValue);
       });
       const newEvent = {
         ...clipboard.event,
@@ -689,6 +873,38 @@
       setSelectedEventId(newEventId);
       showToast("Event pasted!");
     }, [clipboard, events, nodes, choices, selectedEventId, recordHistory, showToast, getEventSummary, setEvents, setNodes, setChoices, setSelectedEventId]);
+    const handleEventDragStart = (e, eventId) => {
+      setDraggingEventId(eventId);
+      e.dataTransfer.setData("text/plain", eventId);
+      e.dataTransfer.effectAllowed = "move";
+    };
+    const handleEventDragOver = (e) => {
+      e.preventDefault();
+    };
+    const handleEventDrop = (e, targetEventId, targetType) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedEventId = draggingEventId;
+      if (!draggedEventId || draggedEventId === targetEventId) {
+        setDraggingEventId(null);
+        return;
+      }
+      recordHistory();
+      const { newEvents, newNodes, newChoices, updatedSelectedEventId } = reindexDataAfterDrag(
+        draggedEventId,
+        targetEventId,
+        targetType,
+        events,
+        nodes,
+        choices
+      );
+      setEvents(newEvents);
+      setNodes(newNodes);
+      setChoices(newChoices);
+      setSelectedEventId(updatedSelectedEventId);
+      showToast("Event moved successfully!");
+      setDraggingEventId(null);
+    };
     import_react5.default.useEffect(() => {
       const handleKeyDown = (e) => {
         const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
@@ -869,21 +1085,45 @@
     };
     const executeDelete = () => {
       const { type, id } = deleteModal.show ? deleteModal : { type: ctxMenu.type, id: ctxMenu.id };
-      if (type === "node" && nodes.find((n) => n.NodeID === id)?.depth === 0) return;
+      if (type === "node" && nodes.find((n) => n.NodeID === id)?.depth === 0) {
+        showToast("Cannot delete the root node.");
+        setDeleteModal({ show: false });
+        setCtxMenu({ show: false });
+        return;
+      }
       recordHistory();
       if (type === "event") {
-        const rem = events.filter((e) => e.EventID !== id);
-        setEvents(rem);
-        setNodes(nodes.filter((n) => n.LinkedEventID !== id));
-        setChoices(choices.filter((c) => !nodes.find((n) => n.NodeID === c.LinkedNodeID && n.LinkedEventID === id)));
-        if (selectedEventId === id) setSelectedEventId(rem[0]?.EventID || "");
+        const { newEvents, newNodes, newChoices } = reindexDataAfterDeletion(id, events, nodes, choices);
+        setEvents(newEvents);
+        setNodes(newNodes);
+        setChoices(newChoices);
+        if (selectedEventId === id) {
+          const deletedEvent = events.find((e) => e.EventID === id);
+          const nextEvent = newEvents.find((e) => e.EventType === deletedEvent.EventType);
+          setSelectedEventId(nextEvent ? nextEvent.EventID : newEvents[0]?.EventID || "");
+        }
       } else if (type === "node") {
-        setNodes(nodes.filter((n) => n.NodeID !== id));
-        setChoices(choices.filter((c) => c.LinkedNodeID !== id));
+        const nodesToDelete = [id];
+        const choicesToDelete = choices.filter((c) => nodesToDelete.includes(c.LinkedNodeID)).map((c) => c.ChoiceID);
+        setNodes(nodes.filter((n) => !nodesToDelete.includes(n.NodeID)));
+        setChoices(choices.filter((c) => !choicesToDelete.includes(c.ChoiceID)));
+        const parentNodesToUpdate = nodes.filter((n) => n.ChoiceIDs.some((cid) => choicesToDelete.includes(cid)));
+        if (parentNodesToUpdate.length > 0) {
+          setNodes((currentNodes) => currentNodes.map((n) => {
+            if (parentNodesToUpdate.find((p) => p.NodeID === n.NodeID)) {
+              return { ...n, ChoiceIDs: n.ChoiceIDs.filter((cid) => !choicesToDelete.includes(cid)) };
+            }
+            return n;
+          }));
+        }
       } else if (type === "choice") {
-        const cToDelete = choices.find((c) => c.ChoiceID === id);
-        setChoices(choices.filter((c) => c.ChoiceID !== id));
-        if (cToDelete) setNodes(nodes.map((n) => n.NodeID === cToDelete.LinkedNodeID ? { ...n, ChoiceIDs: n.ChoiceIDs.filter((cid) => cid !== id) } : n));
+        const choiceToDelete = choices.find((c) => c.ChoiceID === id);
+        if (choiceToDelete) {
+          setChoices(choices.filter((c) => c.ChoiceID !== id));
+          setNodes(nodes.map(
+            (n) => n.NodeID === choiceToDelete.LinkedNodeID ? { ...n, ChoiceIDs: n.ChoiceIDs.filter((cid) => cid !== id) } : n
+          ));
+        }
       }
       setDeleteModal({ show: false });
       setCtxMenu({ show: false });
@@ -1102,7 +1342,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.3"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.7"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1119,7 +1359,12 @@
           { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
           ["Fixed", "Random", "Npc"].map((type) => import_react5.default.createElement(
             "div",
-            { key: type, onContextMenu: (e) => handleContextMenu(e, "event-list", type) },
+            {
+              key: type,
+              onContextMenu: (e) => handleContextMenu(e, "event-list", type),
+              onDragOver: handleEventDragOver,
+              onDrop: (e) => handleEventDrop(e, null, type)
+            },
             import_react5.default.createElement("div", {
               className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
               onClick: () => setCollapsedSections((prev) => ({ ...prev, [type]: !prev[type] })),
@@ -1133,7 +1378,15 @@
               (e) => e.EventType === type && (e.DevComment.toLowerCase().includes(searchQuery.toLowerCase()) || e.EventID.toLowerCase().includes(searchQuery.toLowerCase()))
             ).map((ev) => import_react5.default.createElement(
               "div",
-              { key: ev.EventID, className: "group relative mb-1.5 font-bold", onContextMenu: (e) => handleContextMenu(e, "event", ev.EventID) },
+              {
+                key: ev.EventID,
+                className: `group relative mb-1.5 font-bold transition-opacity ${draggingEventId === ev.EventID ? "opacity-30" : ""}`,
+                onContextMenu: (e) => handleContextMenu(e, "event", ev.EventID),
+                draggable: "true",
+                onDragStart: (e) => handleEventDragStart(e, ev.EventID),
+                onDragOver: handleEventDragOver,
+                onDrop: (e) => handleEventDrop(e, ev.EventID, type)
+              },
               import_react5.default.createElement(
                 "button",
                 { onClick: () => {

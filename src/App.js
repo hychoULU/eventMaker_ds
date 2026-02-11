@@ -6,6 +6,8 @@ import PropField from './components/PropField.js';
 import { getEventSummary } from './utils/eventHelpers.js';
 import { useEventActions } from './hooks/useEventActions.js';
 import { useGlobalStates } from './hooks/useGlobalStates.js';
+import { reindexDataAfterDrag } from './utils/eventDragDrop.js';
+import { reindexDataAfterDeletion } from './utils/eventReindexing.js';
 
 const App = () => {
     const {
@@ -20,6 +22,8 @@ const App = () => {
         canvasRef, elementRefs, editingElementRef, hasAutoLoaded, undoStack, setUndoStack, redoStack, setRedoStack,
         showToast, recordHistory
     } = useGlobalStates();
+
+    const [draggingEventId, setDraggingEventId] = React.useState(null);
 
     const {
         createEvent,
@@ -195,6 +199,43 @@ const App = () => {
         showToast("Event pasted!");
 
     }, [clipboard, events, nodes, choices, selectedEventId, recordHistory, showToast, getEventSummary, setEvents, setNodes, setChoices, setSelectedEventId]);
+    
+    const handleEventDragStart = (e, eventId) => {
+        setDraggingEventId(eventId);
+        e.dataTransfer.setData("text/plain", eventId);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleEventDragOver = (e) => {
+        e.preventDefault();
+    };
+
+    const handleEventDrop = (e, targetEventId, targetType) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const draggedEventId = draggingEventId;
+        if (!draggedEventId || draggedEventId === targetEventId) {
+            setDraggingEventId(null);
+            return;
+        }
+
+        recordHistory();
+        const { newEvents, newNodes, newChoices, updatedSelectedEventId } = reindexDataAfterDrag(
+            draggedEventId,
+            targetEventId,
+            targetType,
+            events,
+            nodes,
+            choices
+        );
+
+        setEvents(newEvents);
+        setNodes(newNodes);
+        setChoices(newChoices);
+        setSelectedEventId(updatedSelectedEventId);
+        showToast("Event moved successfully!");
+        setDraggingEventId(null);
+    };
 
     React.useEffect(() => {
         const handleKeyDown = (e) => {
@@ -368,20 +409,57 @@ const App = () => {
 
     const executeDelete = () => {
         const { type, id } = deleteModal.show ? deleteModal : { type: ctxMenu.type, id: ctxMenu.id };
-        if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) return;
-        recordHistory();
-        if (type === 'event') {
-            const rem = events.filter(e => e.EventID !== id);
-            setEvents(rem); setNodes(nodes.filter(n => n.LinkedEventID !== id)); setChoices(choices.filter(c => !nodes.find(n => n.NodeID === c.LinkedNodeID && n.LinkedEventID === id)));
-            if (selectedEventId === id) setSelectedEventId(rem[0]?.EventID || "");
-        } else if (type === 'node') {
-            setNodes(nodes.filter(n => n.NodeID !== id)); setChoices(choices.filter(c => c.LinkedNodeID !== id));
-        } else if (type === 'choice') {
-            const cToDelete = choices.find(c => c.ChoiceID === id);
-            setChoices(choices.filter(c => c.ChoiceID !== id));
-            if (cToDelete) setNodes(nodes.map(n => n.NodeID === cToDelete.LinkedNodeID ? { ...n, ChoiceIDs: n.ChoiceIDs.filter(cid => cid !== id) } : n));
+        if (type === 'node' && nodes.find(n => n.NodeID === id)?.depth === 0) {
+            showToast("Cannot delete the root node.");
+            setDeleteModal({ show: false });
+            setCtxMenu({ show: false });
+            return;
         }
-        setDeleteModal({ show: false }); setCtxMenu({ show: false }); setSelectedElement(null);
+        recordHistory();
+    
+        if (type === 'event') {
+            const { newEvents, newNodes, newChoices } = reindexDataAfterDeletion(id, events, nodes, choices);
+            setEvents(newEvents);
+            setNodes(newNodes);
+            setChoices(newChoices);
+    
+            if (selectedEventId === id) {
+                const deletedEvent = events.find(e => e.EventID === id);
+                const nextEvent = newEvents.find(e => e.EventType === deletedEvent.EventType);
+                setSelectedEventId(nextEvent ? nextEvent.EventID : (newEvents[0]?.EventID || ""));
+            }
+        } else if (type === 'node') {
+            const nodesToDelete = [id];
+            const choicesToDelete = choices.filter(c => nodesToDelete.includes(c.LinkedNodeID)).map(c => c.ChoiceID);
+            
+            setNodes(nodes.filter(n => !nodesToDelete.includes(n.NodeID)));
+            setChoices(choices.filter(c => !choicesToDelete.includes(c.ChoiceID)));
+    
+            // Also remove choice references from parent nodes
+            const parentNodesToUpdate = nodes.filter(n => n.ChoiceIDs.some(cid => choicesToDelete.includes(cid)));
+            if (parentNodesToUpdate.length > 0) {
+                setNodes(currentNodes => currentNodes.map(n => {
+                    if (parentNodesToUpdate.find(p => p.NodeID === n.NodeID)) {
+                        return { ...n, ChoiceIDs: n.ChoiceIDs.filter(cid => !choicesToDelete.includes(cid)) };
+                    }
+                    return n;
+                }));
+            }
+        } else if (type === 'choice') {
+            const choiceToDelete = choices.find(c => c.ChoiceID === id);
+            if (choiceToDelete) {
+                setChoices(choices.filter(c => c.ChoiceID !== id));
+                setNodes(nodes.map(n => 
+                    n.NodeID === choiceToDelete.LinkedNodeID 
+                        ? { ...n, ChoiceIDs: n.ChoiceIDs.filter(cid => cid !== id) } 
+                        : n
+                ));
+            }
+        }
+    
+        setDeleteModal({ show: false });
+        setCtxMenu({ show: false });
+        setSelectedElement(null);
     };
 
     const handleContextMenu = (e, type, id) => {
@@ -589,7 +667,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.3"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.1.7"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -601,7 +679,12 @@ const App = () => {
                 ),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
                     ['Fixed', 'Random', 'Npc'].map(type => (
-                        React.createElement("div", { key: type, onContextMenu: (e) => handleContextMenu(e, 'event-list', type) },
+                        React.createElement("div", { 
+                            key: type, 
+                            onContextMenu: (e) => handleContextMenu(e, 'event-list', type),
+                            onDragOver: handleEventDragOver,
+                            onDrop: (e) => handleEventDrop(e, null, type)
+                        },
                             React.createElement("div", { 
                                 className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
                                 onClick: () => setCollapsedSections(prev => ({...prev, [type]: !prev[type]})),
@@ -619,7 +702,15 @@ const App = () => {
                                 (e.DevComment.toLowerCase().includes(searchQuery.toLowerCase()) || 
                                  e.EventID.toLowerCase().includes(searchQuery.toLowerCase()))
                             ).map(ev => (
-                                React.createElement("div", { key: ev.EventID, className: "group relative mb-1.5 font-bold", onContextMenu: (e) => handleContextMenu(e, 'event', ev.EventID) },
+                                React.createElement("div", { 
+                                    key: ev.EventID, 
+                                    className: `group relative mb-1.5 font-bold transition-opacity ${draggingEventId === ev.EventID ? 'opacity-30' : ''}`,
+                                    onContextMenu: (e) => handleContextMenu(e, 'event', ev.EventID),
+                                    draggable: "true",
+                                    onDragStart: (e) => handleEventDragStart(e, ev.EventID),
+                                    onDragOver: handleEventDragOver,
+                                    onDrop: (e) => handleEventDrop(e, ev.EventID, type)
+                                },
                                     React.createElement("button", { onClick: () => { setSelectedEventId(ev.EventID); setSelectedElement({ type: 'event', id: ev.EventID }); }, className: `w-full text-left p-3 rounded-xl transition-all pr-10 ${selectedEventId === ev.EventID ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-400 font-bold' : 'hover:bg-gray-100 font-bold'}` },
                                         editingEventCommentId === ev.EventID ? (
                                             React.createElement("input", { 
