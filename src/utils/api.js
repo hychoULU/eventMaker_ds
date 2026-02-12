@@ -84,8 +84,8 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
     const data = {
         "Event시트": events.map(e => ({
             ...e,
-            TargetUnitCondition: (e.TargetUnitCondition || "").replace(/
-/g, ',')
+            TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
+            EventScope: e.EventScope || "Scene"
         })),
         "Node시트": nodes.map(({ depth, ...rest }) => rest),
         "Choice시트": choices.map(c => {

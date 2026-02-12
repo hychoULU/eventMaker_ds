@@ -111,7 +111,8 @@
     const data = {
       "Event\uC2DC\uD2B8": events.map((e) => ({
         ...e,
-        TargetUnitCondition: (e.TargetUnitCondition || "").replace(/\n/g, ",")
+        TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter((s) => s.trim()).join(","),
+        EventScope: e.EventScope || "Scene"
       })),
       "Node\uC2DC\uD2B8": nodes.map(({ depth, ...rest }) => rest),
       "Choice\uC2DC\uD2B8": choices.map((c) => {
@@ -369,7 +370,7 @@
       const id = `Event_${type}${newIndex}`;
       const startId = `Node${getEventSummary(id)}00`;
       const startChoiceId = `Choice${getEventSummary(id)}000`;
-      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 };
+      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 };
       const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
       const startChoice = { ChoiceID: startChoiceId, DevComment: "\uC0C8 \uC120\uD0DD\uC9C0", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
       setEvents((prev) => [...prev, newEvent]);
@@ -1385,7 +1386,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.4"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.5"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1604,6 +1605,10 @@
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, TargetUnitCondition: v } : e));
               }, type: "textarea" }),
+              import_react5.default.createElement(PropField_default, { label: "Event Scope", value: ev.EventScope || "Scene", onChange: (v) => {
+                recordHistory();
+                setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, EventScope: v } : e));
+              }, type: "select", options: ["Scene", "All"] }),
               import_react5.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, import_react5.default.createElement(PropField_default, { label: "Weight", value: ev.Weight, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, Weight: parseInt(v) || 0 } : e));

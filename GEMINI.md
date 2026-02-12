@@ -23,6 +23,7 @@ DevComment
 StartNodeID
 StartCondition
 TargetUnitCondition
+EventScope
 EventType
 Weight
 IsRepeatable
