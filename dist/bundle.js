@@ -1386,7 +1386,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.5"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.6"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1608,7 +1608,7 @@
               import_react5.default.createElement(PropField_default, { label: "Event Scope", value: ev.EventScope || "Scene", onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, EventScope: v } : e));
-              }, type: "select", options: ["Scene", "All"] }),
+              }, type: "select", options: ["Scene", "Opposite", "All"] }),
               import_react5.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, import_react5.default.createElement(PropField_default, { label: "Weight", value: ev.Weight, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, Weight: parseInt(v) || 0 } : e));
