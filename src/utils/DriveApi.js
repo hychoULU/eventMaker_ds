@@ -139,18 +139,33 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
     } catch (error) {
         console.error("Upload Error:", error);
         let errorMsg = "알 수 없는 오류";
+        let isAuthError = false;
+
         try {
-            if (error.body) {
+            if (error.result && error.result.error) {
+                errorMsg = error.result.error.message;
+                if (error.result.error.code === 401 || error.result.error.code === 403) {
+                    isAuthError = true;
+                }
+            } else if (error.body) {
                 const parsed = JSON.parse(error.body);
                 errorMsg = parsed.error.message;
-            } else if (error.result && error.result.error) {
-                errorMsg = error.result.error.message;
+                if (parsed.error.code === 401 || parsed.error.code === 403) {
+                    isAuthError = true;
+                }
             } else {
-                errorMsg = error.message;
+                errorMsg = error.message || error.toString();
             }
-        } catch (e) { errorMsg = error.toString(); }
+        } catch (e) { 
+            errorMsg = error.toString();
+        }
 
-        alert("저장 실패: " + errorMsg);
+        if (isAuthError) {
+            gapi.client.setToken(null);
+            alert("저장 실패: 인증이 만료되었습니다. 다시 시도해주세요.");
+        } else {
+            alert("저장 실패: " + errorMsg);
+        }
     }
 };
 
@@ -206,6 +221,33 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
         }
     } catch (error) {
         console.error("Error loading from Google Drive:", error);
-        showToast("Failed to load from Google Drive.");
+        let errorMsg = "알 수 없는 오류";
+        let isAuthError = false;
+
+        try {
+            if (error.result && error.result.error) {
+                errorMsg = error.result.error.message;
+                if (error.result.error.code === 401 || error.result.error.code === 403) {
+                    isAuthError = true;
+                }
+            } else if (error.body) {
+                const parsed = JSON.parse(error.body);
+                errorMsg = parsed.error.message;
+                if (parsed.error.code === 401 || parsed.error.code === 403) {
+                    isAuthError = true;
+                }
+            } else {
+                errorMsg = error.message || error.toString();
+            }
+        } catch (e) {
+            errorMsg = error.toString();
+        }
+
+        if (isAuthError) {
+            gapi.client.setToken(null);
+            showToast("불러오기 실패: 인증이 만료되었습니다. 다시 시도해주세요.");
+        } else {
+            showToast("불러오기 실패: " + errorMsg);
+        }
     }
 };

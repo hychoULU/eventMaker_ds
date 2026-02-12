@@ -169,19 +169,31 @@
     } catch (error) {
       console.error("Upload Error:", error);
       let errorMsg = "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958";
+      let isAuthError = false;
       try {
-        if (error.body) {
+        if (error.result && error.result.error) {
+          errorMsg = error.result.error.message;
+          if (error.result.error.code === 401 || error.result.error.code === 403) {
+            isAuthError = true;
+          }
+        } else if (error.body) {
           const parsed = JSON.parse(error.body);
           errorMsg = parsed.error.message;
-        } else if (error.result && error.result.error) {
-          errorMsg = error.result.error.message;
+          if (parsed.error.code === 401 || parsed.error.code === 403) {
+            isAuthError = true;
+          }
         } else {
-          errorMsg = error.message;
+          errorMsg = error.message || error.toString();
         }
       } catch (e) {
         errorMsg = error.toString();
       }
-      alert("\uC800\uC7A5 \uC2E4\uD328: " + errorMsg);
+      if (isAuthError) {
+        gapi.client.setToken(null);
+        alert("\uC800\uC7A5 \uC2E4\uD328: \uC778\uC99D\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.");
+      } else {
+        alert("\uC800\uC7A5 \uC2E4\uD328: " + errorMsg);
+      }
     }
   };
   var loadFromDrive = async (setEvents, setNodes, setChoices, setSelectedEventId, showToast, recordHistory, gapiInitialized, gisInited) => {
@@ -238,7 +250,32 @@
       }
     } catch (error) {
       console.error("Error loading from Google Drive:", error);
-      showToast("Failed to load from Google Drive.");
+      let errorMsg = "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958";
+      let isAuthError = false;
+      try {
+        if (error.result && error.result.error) {
+          errorMsg = error.result.error.message;
+          if (error.result.error.code === 401 || error.result.error.code === 403) {
+            isAuthError = true;
+          }
+        } else if (error.body) {
+          const parsed = JSON.parse(error.body);
+          errorMsg = parsed.error.message;
+          if (parsed.error.code === 401 || parsed.error.code === 403) {
+            isAuthError = true;
+          }
+        } else {
+          errorMsg = error.message || error.toString();
+        }
+      } catch (e) {
+        errorMsg = error.toString();
+      }
+      if (isAuthError) {
+        gapi.client.setToken(null);
+        showToast("\uBD88\uB7EC\uC624\uAE30 \uC2E4\uD328: \uC778\uC99D\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.");
+      } else {
+        showToast("\uBD88\uB7EC\uC624\uAE30 \uC2E4\uD328: " + errorMsg);
+      }
     }
   };
 
