@@ -27,6 +27,7 @@ EventScope
 EventType
 Weight
 IsRepeatable
+IsImmediate
 CoolDown
 
 Node시트

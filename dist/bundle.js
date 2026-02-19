@@ -370,7 +370,7 @@
       const id = `Event_${type}${newIndex}`;
       const startId = `Node${getEventSummary(id)}00`;
       const startChoiceId = `Choice${getEventSummary(id)}000`;
-      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, Weight: 100, IsRepeatable: false, CoolDown: 0 };
+      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, Weight: 100, IsImmediate: type === "Fixed" || type === "Npc", IsRepeatable: false, CoolDown: 0 };
       const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
       const startChoice = { ChoiceID: startChoiceId, DevComment: "\uC0C8 \uC120\uD0DD\uC9C0", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
       setEvents((prev) => [...prev, newEvent]);
@@ -1386,7 +1386,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.6"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.7"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1619,7 +1619,11 @@
               import_react5.default.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: (e) => {
                 recordHistory();
                 setEvents(events.map((evnt) => evnt.EventID === ev.EventID ? { ...evnt, IsRepeatable: e.target.checked } : evnt));
-              }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), import_react5.default.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable"))
+              }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), import_react5.default.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable")),
+              import_react5.default.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement("input", { type: "checkbox", checked: ev.IsImmediate, onChange: (e) => {
+                recordHistory();
+                setEvents(events.map((evnt) => evnt.EventID === ev.EventID ? { ...evnt, IsImmediate: e.target.checked } : evnt));
+              }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), import_react5.default.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Immediate"))
             );
           })(),
           selectedElement.type === "node" && (() => {
