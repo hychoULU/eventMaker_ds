@@ -74,8 +74,20 @@ export const executeAfterAuth = (action, showToast, gapiInitialized, gisInited) 
 };
 
 export const uploadToDrive = async (events, nodes, choices, showToast) => {
+    const npcEvents = events.filter(e => e.EventType === 'Npc' && e.NpcID);
+    const npcMap = {};
+    npcEvents.forEach(e => {
+        if (!npcMap[e.NpcID]) npcMap[e.NpcID] = [];
+        npcMap[e.NpcID].push(`${e.EventID}_${e.Weight}`);
+    });
+    const npcMapping = Object.keys(npcMap).map(npcId => ({
+        NpcID: npcId,
+        EventToWeight: npcMap[npcId].join(',')
+    }));
+
     const data = {
-        "Event시트": events.map(e => ({
+        "Npc매핑": npcMapping,
+        "Event시트": events.map(({ NpcID, ...e }) => ({
             ...e,
             TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
             EventScope: e.EventScope || "Scene"
@@ -210,9 +222,21 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
                 else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
                 return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
             });
+            const npcMapping = data["Npc매핑"] || [];
+            const eventToNpcMap = {};
+            npcMapping.forEach(mapping => {
+                if (mapping.EventToWeight) {
+                    const pairs = mapping.EventToWeight.split(',');
+                    pairs.forEach(pair => {
+                        const match = pair.match(/^(.*)_(\d+)$/);
+                        if (match) eventToNpcMap[match[1]] = mapping.NpcID;
+                    });
+                }
+            });
             const pE = eS.map(e => ({
                 ...e,
-                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n')
+                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
+                NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
             }));
             setEvents(pE); setNodes(pN); setChoices(pC);
             if (eS.length > 0) setSelectedEventId(eS[0].EventID);

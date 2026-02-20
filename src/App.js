@@ -546,9 +546,21 @@ const App = () => {
                 else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
                 return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
             });
+                        const npcMapping = data["Npc매핑"] || [];
+            const eventToNpcMap = {};
+            npcMapping.forEach(mapping => {
+                if (mapping.EventToWeight) {
+                    const pairs = mapping.EventToWeight.split(',');
+                    pairs.forEach(pair => {
+                        const match = pair.match(/^(.*)_(\d+)$/);
+                        if (match) eventToNpcMap[match[1]] = mapping.NpcID;
+                    });
+                }
+            });
             const pE = eS.map(e => ({
                 ...e,
-                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n')
+                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
+                NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
             }));
             setEvents(pE); setNodes(pN); setChoices(pC);
             if (eS.length > 0) setSelectedEventId(eS[0].EventID);
@@ -667,7 +679,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.8"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.9"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -817,6 +829,7 @@ const App = () => {
                             React.createElement(PropField, { label: "Start Condition", value: ev.StartCondition, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, StartCondition: v} : e)); }, type: "textarea" }),
                             React.createElement(PropField, { label: "Target Unit Condition", value: ev.TargetUnitCondition, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, TargetUnitCondition: v} : e)); }, type: "textarea" }),
                             React.createElement(PropField, { label: "Event Scope", value: ev.EventScope || "Scene", onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, EventScope: v} : e)); }, type: "select", options: ["Scene", "Opposite", "All"] }),
+                            ev.EventType === 'Npc' && React.createElement(PropField, { label: "Npc ID", value: ev.NpcID || "", onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, NpcID: v} : e)); } }),
                             React.createElement("div", { className: "grid grid-cols-2 gap-3" }, React.createElement(PropField, { label: "Weight", value: ev.Weight, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }, type: "number" }), React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }, type: "number" })),
                             React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable")),
                             React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsImmediate, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsImmediate: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Immediate"))

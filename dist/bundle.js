@@ -108,8 +108,19 @@
     }
   };
   var uploadToDrive = async (events, nodes, choices, showToast) => {
+    const npcEvents = events.filter((e) => e.EventType === "Npc" && e.NpcID);
+    const npcMap = {};
+    npcEvents.forEach((e) => {
+      if (!npcMap[e.NpcID]) npcMap[e.NpcID] = [];
+      npcMap[e.NpcID].push(`${e.EventID}_${e.Weight}`);
+    });
+    const npcMapping = Object.keys(npcMap).map((npcId) => ({
+      NpcID: npcId,
+      EventToWeight: npcMap[npcId].join(",")
+    }));
     const data = {
-      "Event\uC2DC\uD2B8": events.map((e) => ({
+      "Npc\uB9E4\uD551": npcMapping,
+      "Event\uC2DC\uD2B8": events.map(({ NpcID, ...e }) => ({
         ...e,
         TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter((s) => s.trim()).join(","),
         EventScope: e.EventScope || "Scene"
@@ -237,9 +248,21 @@
           }
           return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
         });
+        const npcMapping = data["Npc\uB9E4\uD551"] || [];
+        const eventToNpcMap = {};
+        npcMapping.forEach((mapping) => {
+          if (mapping.EventToWeight) {
+            const pairs = mapping.EventToWeight.split(",");
+            pairs.forEach((pair) => {
+              const match = pair.match(/^(.*)_(\d+)$/);
+              if (match) eventToNpcMap[match[1]] = mapping.NpcID;
+            });
+          }
+        });
         const pE = eS.map((e) => ({
           ...e,
-          TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n")
+          TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
+          NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
         }));
         setEvents(pE);
         setNodes(pN);
@@ -1259,9 +1282,21 @@
           }
           return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
         });
+        const npcMapping = data["Npc\uB9E4\uD551"] || [];
+        const eventToNpcMap = {};
+        npcMapping.forEach((mapping) => {
+          if (mapping.EventToWeight) {
+            const pairs = mapping.EventToWeight.split(",");
+            pairs.forEach((pair) => {
+              const match = pair.match(/^(.*)_(\d+)$/);
+              if (match) eventToNpcMap[match[1]] = mapping.NpcID;
+            });
+          }
+        });
         const pE = eS.map((e) => ({
           ...e,
-          TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n")
+          TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
+          NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
         }));
         setEvents(pE);
         setNodes(pN);
@@ -1382,7 +1417,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.8"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.9"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1605,6 +1640,10 @@
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, EventScope: v } : e));
               }, type: "select", options: ["Scene", "Opposite", "All"] }),
+              ev.EventType === "Npc" && import_react5.default.createElement(PropField_default, { label: "Npc ID", value: ev.NpcID || "", onChange: (v) => {
+                recordHistory();
+                setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, NpcID: v } : e));
+              } }),
               import_react5.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, import_react5.default.createElement(PropField_default, { label: "Weight", value: ev.Weight, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, Weight: parseInt(v) || 0 } : e));

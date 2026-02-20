@@ -45,6 +45,10 @@ ActiveCondition
 OnSelectAction
 ActiveTooltipType
 
+Npc매핑 (NPC 이벤트 전용 데이터)
+NpcID (string)
+EventToWeight (나열 형식: EventID_Weight,EventID_Weight. ex: Event_Npc0_100,Event_Npc1_120)
+
 2. 모든 ID들은, 편집하지 못하게 자동으로 기입.
 중복된 키를 만들지 않기 위해서 넣은 조치.
 
