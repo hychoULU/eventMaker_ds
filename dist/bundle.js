@@ -525,12 +525,10 @@
   // src/utils/eventDragDrop.js
   var replaceIdsInString = (str, idMap) => {
     if (!str) return str;
-    let newStr = str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
-    for (const oldId of sortedOldIds) {
-      newStr = newStr.split(oldId).join(idMap[oldId]);
-    }
-    return newStr;
+    if (sortedOldIds.length === 0) return str;
+    const regex = new RegExp(sortedOldIds.join("|"), "g");
+    return str.replace(regex, (match) => idMap[match]);
   };
   var reindexDataAfterDrag = (draggedEventId, targetEventId, newType, allEvents, allNodes, allChoices) => {
     const reorderedEvents = JSON.parse(JSON.stringify(allEvents));
@@ -629,12 +627,10 @@
   // src/utils/eventReindexing.js
   var replaceIdsInString2 = (str, idMap) => {
     if (!str) return str;
-    let newStr = str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
-    for (const oldId of sortedOldIds) {
-      newStr = newStr.split(oldId).join(idMap[oldId]);
-    }
-    return newStr;
+    if (sortedOldIds.length === 0) return str;
+    const regex = new RegExp(sortedOldIds.join("|"), "g");
+    return str.replace(regex, (match) => idMap[match]);
   };
   var reindexDataAfterDeletion = (deletedEventId, currentEvents, currentNodes, currentChoices) => {
     const deletedEvent = currentEvents.find((e) => e.EventID === deletedEventId);
@@ -1386,7 +1382,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.7"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.8"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },

@@ -9,12 +9,13 @@ import { getEventSummary } from './eventHelpers.js';
  */
 const replaceIdsInString = (str, idMap) => {
     if (!str) return str;
-    let newStr = str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
-    for (const oldId of sortedOldIds) {
-        newStr = newStr.split(oldId).join(idMap[oldId]);
-    }
-    return newStr;
+    if (sortedOldIds.length === 0) return str;
+    
+    // Create a single RegExp that matches any of the old IDs.
+    // This ensures each substring is replaced exactly once, preventing cyclic replacements.
+    const regex = new RegExp(sortedOldIds.join('|'), 'g');
+    return str.replace(regex, match => idMap[match]);
 };
 
 /**

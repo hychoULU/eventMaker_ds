@@ -9,15 +9,13 @@ import { getEventSummary } from './eventHelpers.js';
  */
 const replaceIdsInString = (str, idMap) => {
     if (!str) return str;
-    let newStr = str;
-    // To avoid replacing parts of IDs (e.g., Event_Fixed1 replacing in Event_Fixed10),
-    // we sort keys by length descending.
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
-    for (const oldId of sortedOldIds) {
-        // Use a regex with word boundary on the right to be safer, but splitting/joining is most robust.
-        newStr = newStr.split(oldId).join(idMap[oldId]);
-    }
-    return newStr;
+    if (sortedOldIds.length === 0) return str;
+    
+    // Create a single RegExp that matches any of the old IDs.
+    // This ensures each substring is replaced exactly once, preventing cyclic replacements.
+    const regex = new RegExp(sortedOldIds.join('|'), 'g');
+    return str.replace(regex, match => idMap[match]);
 };
 
 /**
