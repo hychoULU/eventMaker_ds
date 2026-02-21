@@ -85,16 +85,24 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
     const npcMap = {};
     npcEvents.forEach(e => {
         if (!npcMap[e.NpcID]) npcMap[e.NpcID] = [];
-        npcMap[e.NpcID].push(`${e.EventID}_${e.Weight}`);
+        npcMap[e.NpcID].push(e.EventID);
     });
     const npcMapping = Object.keys(npcMap).map(npcId => ({
         NpcID: npcId,
-        EventToWeight: npcMap[npcId].join(',')
+        LinkedEvents: npcMap[npcId].join(',')
+    }));
+
+    const randomEvents = events.filter(e => e.EventType === 'Random');
+    const randomMapping = randomEvents.map(e => ({
+        EventID: e.EventID,
+        Weight: e.Weight !== undefined ? e.Weight : 100,
+        IsAlertShow: e.IsAlertShow || false
     }));
 
     const data = {
+        "Random매핑": randomMapping,
         "Npc매핑": npcMapping,
-        "Event시트": events.map(({ NpcID, ...e }) => ({
+        "Event시트": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => ({
             ...e,
             TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
             EventScope: e.EventScope || "Scene"
@@ -225,7 +233,12 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
                         const npcMapping = data["Npc매핑"] || [];
             const eventToNpcMap = {};
             npcMapping.forEach(mapping => {
-                if (mapping.EventToWeight) {
+                if (mapping.LinkedEvents) {
+                    const keys = mapping.LinkedEvents.split(',');
+                    keys.forEach(key => {
+                        eventToNpcMap[key] = mapping.NpcID;
+                    });
+                } else if (mapping.EventToWeight) {
                     const pairs = mapping.EventToWeight.split(',');
                     pairs.forEach(pair => {
                         const match = pair.match(/^(.*)_(\d+)$/);
@@ -233,11 +246,27 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
                     });
                 }
             });
-            const pE = eS.map(e => ({
-                ...e,
-                TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
-                NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
-            }));
+
+            const randomMapping = data["Random매핑"] || [];
+            const eventToRandomMap = {};
+            randomMapping.forEach(mapping => {
+                eventToRandomMap[mapping.EventID] = {
+                    Weight: mapping.Weight,
+                    IsAlertShow: mapping.IsAlertShow
+                };
+            });
+
+            const pE = eS.map(e => {
+                const newE = {
+                    ...e,
+                    TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
+                    NpcID: eventToNpcMap[e.EventID] || e.NpcID || "",
+                    Weight: eventToRandomMap[e.EventID]?.Weight !== undefined ? eventToRandomMap[e.EventID].Weight : (e.Weight !== undefined ? e.Weight : 100),
+                    IsAlertShow: eventToRandomMap[e.EventID]?.IsAlertShow !== undefined ? eventToRandomMap[e.EventID].IsAlertShow : (e.IsAlertShow !== undefined ? e.IsAlertShow : (e.IsImmediate || false))
+                };
+                delete newE.IsImmediate;
+                return newE;
+            });
             setEvents(pE); setNodes(pN); setChoices(pC);
             if (eS.length > 0) setSelectedEventId(eS[0].EventID);
             showToast(`File '${fileName}' loaded from Google Drive.`);

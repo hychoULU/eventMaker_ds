@@ -679,7 +679,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.9"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.0"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -690,7 +690,7 @@ const App = () => {
                     })
                 ),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
-                    ['Fixed', 'Random', 'Npc'].map(type => (
+                    ['Fixed', 'Random', 'Npc', 'Tutorial'].map(type => (
                         React.createElement("div", { 
                             key: type, 
                             onContextMenu: (e) => handleContextMenu(e, 'event-list', type),
@@ -703,9 +703,11 @@ const App = () => {
                                 onMouseEnter: (e) => {
                                     let content = type === 'Fixed' 
                                         ? "고정된 시점에 등장 하는 이벤트. 발생 조건을 만족 시켰다면, 그 시점에 즉시 호출 한다.Ex) 스토리 이벤트, 퀘스트 종료시 이벤트..."
-                                        : content = type == 'Random'
+                                        : type === 'Random'
                                             ? "캠페인 타임에 따라 발생 하는 이벤트 풀. 랜덤 이벤트 발생 시점에, 조건을 만족 시켰다면 발생 풀에 넣어서 제비뽑기 한다.Ex) 천색조 이벤트…"
-                                            : "NPC와 관련된 고정 이벤트. ";
+                                            : type === 'Npc'
+                                                ? "NPC와 관련된 고정 이벤트."
+                                                : "튜토리얼과 관련된 이벤트.";
                                     setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
                                 },
                                 onMouseLeave: () => setTooltip({ show: false })
@@ -830,9 +832,10 @@ const App = () => {
                             React.createElement(PropField, { label: "Target Unit Condition", value: ev.TargetUnitCondition, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, TargetUnitCondition: v} : e)); }, type: "textarea" }),
                             React.createElement(PropField, { label: "Event Scope", value: ev.EventScope || "Scene", onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, EventScope: v} : e)); }, type: "select", options: ["Scene", "Opposite", "All"] }),
                             ev.EventType === 'Npc' && React.createElement(PropField, { label: "Npc ID", value: ev.NpcID || "", onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, NpcID: v} : e)); } }),
-                            React.createElement("div", { className: "grid grid-cols-2 gap-3" }, React.createElement(PropField, { label: "Weight", value: ev.Weight, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }, type: "number" }), React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }, type: "number" })),
+                            ev.EventType === 'Random' && React.createElement("div", { className: "grid grid-cols-2 gap-3" }, React.createElement(PropField, { label: "Weight", value: ev.Weight, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, Weight: parseInt(v) || 0} : e)); }, type: "number" }), React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }, type: "number" })),
+                            ev.EventType !== 'Random' && React.createElement(PropField, { label: "CoolDown", value: ev.CoolDown, onChange: v => { recordHistory(); setEvents(events.map(e => e.EventID === ev.EventID ? {...e, CoolDown: parseInt(v) || 0} : e)); }, type: "number" }),
                             React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsRepeatable: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable")),
-                            React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsImmediate, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsImmediate: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Immediate"))
+                            ev.EventType === 'Random' && React.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, React.createElement("input", { type: "checkbox", checked: ev.IsAlertShow, onChange: e => { recordHistory(); setEvents(events.map(evnt => evnt.EventID === ev.EventID ? {...evnt, IsAlertShow: e.target.checked} : evnt)); }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), React.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Alert Show"))
 
                         );
                     })(),

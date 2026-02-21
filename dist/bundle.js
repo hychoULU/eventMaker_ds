@@ -112,15 +112,22 @@
     const npcMap = {};
     npcEvents.forEach((e) => {
       if (!npcMap[e.NpcID]) npcMap[e.NpcID] = [];
-      npcMap[e.NpcID].push(`${e.EventID}_${e.Weight}`);
+      npcMap[e.NpcID].push(e.EventID);
     });
     const npcMapping = Object.keys(npcMap).map((npcId) => ({
       NpcID: npcId,
-      EventToWeight: npcMap[npcId].join(",")
+      LinkedEvents: npcMap[npcId].join(",")
+    }));
+    const randomEvents = events.filter((e) => e.EventType === "Random");
+    const randomMapping = randomEvents.map((e) => ({
+      EventID: e.EventID,
+      Weight: e.Weight !== void 0 ? e.Weight : 100,
+      IsAlertShow: e.IsAlertShow || false
     }));
     const data = {
+      "Random\uB9E4\uD551": randomMapping,
       "Npc\uB9E4\uD551": npcMapping,
-      "Event\uC2DC\uD2B8": events.map(({ NpcID, ...e }) => ({
+      "Event\uC2DC\uD2B8": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => ({
         ...e,
         TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter((s) => s.trim()).join(","),
         EventScope: e.EventScope || "Scene"
@@ -251,7 +258,12 @@
         const npcMapping = data["Npc\uB9E4\uD551"] || [];
         const eventToNpcMap = {};
         npcMapping.forEach((mapping) => {
-          if (mapping.EventToWeight) {
+          if (mapping.LinkedEvents) {
+            const keys = mapping.LinkedEvents.split(",");
+            keys.forEach((key) => {
+              eventToNpcMap[key] = mapping.NpcID;
+            });
+          } else if (mapping.EventToWeight) {
             const pairs = mapping.EventToWeight.split(",");
             pairs.forEach((pair) => {
               const match = pair.match(/^(.*)_(\d+)$/);
@@ -259,11 +271,25 @@
             });
           }
         });
-        const pE = eS.map((e) => ({
-          ...e,
-          TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
-          NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
-        }));
+        const randomMapping = data["Random\uB9E4\uD551"] || [];
+        const eventToRandomMap = {};
+        randomMapping.forEach((mapping) => {
+          eventToRandomMap[mapping.EventID] = {
+            Weight: mapping.Weight,
+            IsAlertShow: mapping.IsAlertShow
+          };
+        });
+        const pE = eS.map((e) => {
+          const newE = {
+            ...e,
+            TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
+            NpcID: eventToNpcMap[e.EventID] || e.NpcID || "",
+            Weight: eventToRandomMap[e.EventID]?.Weight !== void 0 ? eventToRandomMap[e.EventID].Weight : e.Weight !== void 0 ? e.Weight : 100,
+            IsAlertShow: eventToRandomMap[e.EventID]?.IsAlertShow !== void 0 ? eventToRandomMap[e.EventID].IsAlertShow : e.IsAlertShow !== void 0 ? e.IsAlertShow : e.IsImmediate || false
+          };
+          delete newE.IsImmediate;
+          return newE;
+        });
         setEvents(pE);
         setNodes(pN);
         setChoices(pC);
@@ -350,7 +376,7 @@
   // src/utils/eventHelpers.js
   function getEventSummary(eventId) {
     if (!eventId) return "E";
-    const match = eventId.match(/_(Random|Fixed|Npc)(\d+)/);
+    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial)(\d+)/);
     if (match && match[1] && match[2]) {
       const typeChar2 = match[1].charAt(0);
       const number = match[2];
@@ -393,7 +419,11 @@
       const id = `Event_${type}${newIndex}`;
       const startId = `Node${getEventSummary(id)}00`;
       const startChoiceId = `Choice${getEventSummary(id)}000`;
-      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, Weight: 100, IsImmediate: type === "Fixed" || type === "Npc", IsRepeatable: false, CoolDown: 0 };
+      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, IsRepeatable: false, CoolDown: 0 };
+      if (type === "Random") {
+        newEvent.Weight = 100;
+        newEvent.IsAlertShow = false;
+      }
       const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
       const startChoice = { ChoiceID: startChoiceId, DevComment: "\uC0C8 \uC120\uD0DD\uC9C0", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
       setEvents((prev) => [...prev, newEvent]);
@@ -1417,7 +1447,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.2.9"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.0"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1432,7 +1462,7 @@
         import_react5.default.createElement(
           "div",
           { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
-          ["Fixed", "Random", "Npc"].map((type) => import_react5.default.createElement(
+          ["Fixed", "Random", "Npc", "Tutorial"].map((type) => import_react5.default.createElement(
             "div",
             {
               key: type,
@@ -1444,7 +1474,7 @@
               className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
               onClick: () => setCollapsedSections((prev) => ({ ...prev, [type]: !prev[type] })),
               onMouseEnter: (e) => {
-                let content = type === "Fixed" ? "\uACE0\uC815\uB41C \uC2DC\uC810\uC5D0 \uB4F1\uC7A5 \uD558\uB294 \uC774\uBCA4\uD2B8. \uBC1C\uC0DD \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74, \uADF8 \uC2DC\uC810\uC5D0 \uC989\uC2DC \uD638\uCD9C \uD55C\uB2E4.Ex) \uC2A4\uD1A0\uB9AC \uC774\uBCA4\uD2B8, \uD018\uC2A4\uD2B8 \uC885\uB8CC\uC2DC \uC774\uBCA4\uD2B8..." : content = type == "Random" ? "\uCEA0\uD398\uC778 \uD0C0\uC784\uC5D0 \uB530\uB77C \uBC1C\uC0DD \uD558\uB294 \uC774\uBCA4\uD2B8 \uD480. \uB79C\uB364 \uC774\uBCA4\uD2B8 \uBC1C\uC0DD \uC2DC\uC810\uC5D0, \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74 \uBC1C\uC0DD \uD480\uC5D0 \uB123\uC5B4\uC11C \uC81C\uBE44\uBF51\uAE30 \uD55C\uB2E4.Ex) \uCC9C\uC0C9\uC870 \uC774\uBCA4\uD2B8\u2026" : "NPC\uC640 \uAD00\uB828\uB41C \uACE0\uC815 \uC774\uBCA4\uD2B8. ";
+                let content = type === "Fixed" ? "\uACE0\uC815\uB41C \uC2DC\uC810\uC5D0 \uB4F1\uC7A5 \uD558\uB294 \uC774\uBCA4\uD2B8. \uBC1C\uC0DD \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74, \uADF8 \uC2DC\uC810\uC5D0 \uC989\uC2DC \uD638\uCD9C \uD55C\uB2E4.Ex) \uC2A4\uD1A0\uB9AC \uC774\uBCA4\uD2B8, \uD018\uC2A4\uD2B8 \uC885\uB8CC\uC2DC \uC774\uBCA4\uD2B8..." : type === "Random" ? "\uCEA0\uD398\uC778 \uD0C0\uC784\uC5D0 \uB530\uB77C \uBC1C\uC0DD \uD558\uB294 \uC774\uBCA4\uD2B8 \uD480. \uB79C\uB364 \uC774\uBCA4\uD2B8 \uBC1C\uC0DD \uC2DC\uC810\uC5D0, \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74 \uBC1C\uC0DD \uD480\uC5D0 \uB123\uC5B4\uC11C \uC81C\uBE44\uBF51\uAE30 \uD55C\uB2E4.Ex) \uCC9C\uC0C9\uC870 \uC774\uBCA4\uD2B8\u2026" : type === "Npc" ? "NPC\uC640 \uAD00\uB828\uB41C \uACE0\uC815 \uC774\uBCA4\uD2B8." : "\uD29C\uD1A0\uB9AC\uC5BC\uACFC \uAD00\uB828\uB41C \uC774\uBCA4\uD2B8.";
                 setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
               },
               onMouseLeave: () => setTooltip({ show: false })
@@ -1644,21 +1674,25 @@
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, NpcID: v } : e));
               } }),
-              import_react5.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, import_react5.default.createElement(PropField_default, { label: "Weight", value: ev.Weight, onChange: (v) => {
+              ev.EventType === "Random" && import_react5.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, import_react5.default.createElement(PropField_default, { label: "Weight", value: ev.Weight, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, Weight: parseInt(v) || 0 } : e));
               }, type: "number" }), import_react5.default.createElement(PropField_default, { label: "CoolDown", value: ev.CoolDown, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, CoolDown: parseInt(v) || 0 } : e));
               }, type: "number" })),
+              ev.EventType !== "Random" && import_react5.default.createElement(PropField_default, { label: "CoolDown", value: ev.CoolDown, onChange: (v) => {
+                recordHistory();
+                setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, CoolDown: parseInt(v) || 0 } : e));
+              }, type: "number" }),
               import_react5.default.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement("input", { type: "checkbox", checked: ev.IsRepeatable, onChange: (e) => {
                 recordHistory();
                 setEvents(events.map((evnt) => evnt.EventID === ev.EventID ? { ...evnt, IsRepeatable: e.target.checked } : evnt));
               }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), import_react5.default.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Repeatable")),
-              import_react5.default.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement("input", { type: "checkbox", checked: ev.IsImmediate, onChange: (e) => {
+              ev.EventType === "Random" && import_react5.default.createElement("div", { className: "flex items-center gap-3 pt-2 font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement("input", { type: "checkbox", checked: ev.IsAlertShow, onChange: (e) => {
                 recordHistory();
-                setEvents(events.map((evnt) => evnt.EventID === ev.EventID ? { ...evnt, IsImmediate: e.target.checked } : evnt));
-              }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), import_react5.default.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Immediate"))
+                setEvents(events.map((evnt) => evnt.EventID === ev.EventID ? { ...evnt, IsAlertShow: e.target.checked } : evnt));
+              }, className: "w-5 h-5 text-blue-600 rounded-lg border-gray-300 shadow-sm" }), import_react5.default.createElement("label", { className: "text-[11px] font-black text-gray-500 uppercase tracking-tighter" }, "Is Alert Show"))
             );
           })(),
           selectedElement.type === "node" && (() => {

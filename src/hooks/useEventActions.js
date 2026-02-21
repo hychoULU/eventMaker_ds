@@ -34,7 +34,11 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
         const startId = `Node${getEventSummary(id)}00`;
         const startChoiceId = `Choice${getEventSummary(id)}000`;
         
-        const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, Weight: 100, IsImmediate: type === 'Fixed' || type === 'Npc', IsRepeatable: false, CoolDown: 0 };
+        const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, IsRepeatable: false, CoolDown: 0 };
+        if (type === 'Random') {
+            newEvent.Weight = 100;
+            newEvent.IsAlertShow = false;
+        }
         const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
         const startChoice = { ChoiceID: startChoiceId, DevComment: "새 선택지", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
         

@@ -1,6 +1,6 @@
 export function getEventSummary(eventId) {
     if (!eventId) return "E";
-    const match = eventId.match(/_(Random|Fixed|Npc)(\d+)/); // Added Npc type
+    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial)(\d+)/); // Added Npc, Tutorial type
     if (match && match[1] && match[2]) {
         const typeChar = match[1].charAt(0);
         const number = match[2];
