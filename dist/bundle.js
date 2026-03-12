@@ -127,14 +127,21 @@
     const data = {
       "Random\uB9E4\uD551": randomMapping,
       "Npc\uB9E4\uD551": npcMapping,
-      "Event\uC2DC\uD2B8": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => ({
-        ...e,
-        TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter((s) => s.trim()).join(","),
-        EventScope: e.EventScope || "Scene"
-      })),
+      "Event\uC2DC\uD2B8": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => {
+        let startConds = (e.StartCondition || "").split(",").map((s) => s.trim()).filter((s) => s !== "" && s !== "None");
+        if (e.IsRepeatable) {
+          startConds.push(`Cooldown_${e.EventID}_${e.CoolDown || 0}`);
+        }
+        return {
+          ...e,
+          StartCondition: startConds.length > 0 ? startConds.join(",") : "None",
+          TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter((s) => s.trim()).join(","),
+          EventScope: e.EventScope || "Scene"
+        };
+      }),
       "Node\uC2DC\uD2B8": nodes.map(({ depth, ...rest }) => rest),
       "Choice\uC2DC\uD2B8": choices.map((c) => {
-        const actionStr = (c.OnSelectAction || "").replace(/\n/g, ",");
+        const actionStr = (c.OnSelectAction || "").replace(/&\s*\n/g, "& ").replace(/\n/g, ",");
         let tType = c.ActiveTooltipType;
         if ((tType === "ShowChoiceAction" || tType === "Probability") && c.ActiveTooltipValue) {
           tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, "_")}`;
@@ -280,8 +287,10 @@
           };
         });
         const pE = eS.map((e) => {
+          let startConds = (e.StartCondition || "").split(",").map((s) => s.trim()).filter((s) => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${e.EventID}_`));
           const newE = {
             ...e,
+            StartCondition: startConds.length > 0 ? startConds.join(",") : "None",
             TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
             NpcID: eventToNpcMap[e.EventID] || e.NpcID || "",
             Weight: eventToRandomMap[e.EventID]?.Weight !== void 0 ? eventToRandomMap[e.EventID].Weight : e.Weight !== void 0 ? e.Weight : 100,
@@ -506,8 +515,14 @@
     const hasAutoLoaded = React.useRef(false);
     const [undoStack, setUndoStack] = React.useState([]);
     const [redoStack, setRedoStack] = React.useState([]);
+    const toastTimeoutRef = React.useRef(null);
     const showToast = React.useCallback((msg) => {
       setToast({ show: true, message: msg });
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setToast({ show: false, message: "" });
+        toastTimeoutRef.current = null;
+      }, 5e3);
     }, []);
     const recordHistory = React.useCallback(() => {
       setUndoStack((prev) => [...prev.slice(-49), JSON.stringify({ events, nodes, choices })]);
@@ -1447,7 +1462,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.0"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.3"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },

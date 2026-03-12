@@ -102,15 +102,21 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
     const data = {
         "Random매핑": randomMapping,
         "Npc매핑": npcMapping,
-        "Event시트": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => ({
-            ...e,
-            TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
-            EventScope: e.EventScope || "Scene"
-        })),
+        "Event시트": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => {
+            let startConds = (e.StartCondition || "").split(',').map(s => s.trim()).filter(s => s !== "" && s !== "None");
+            if (e.IsRepeatable) {
+                startConds.push(`Cooldown_${e.EventID}_${e.CoolDown || 0}`);
+            }
+            return {
+                ...e,
+                StartCondition: startConds.length > 0 ? startConds.join(',') : 'None',
+                TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
+                EventScope: e.EventScope || "Scene"
+            };
+        }),
         "Node시트": nodes.map(({ depth, ...rest }) => rest),
         "Choice시트": choices.map(c => {
-            const actionStr = (c.OnSelectAction || "").replace(/
-/g, ',');
+            const actionStr = (c.OnSelectAction || "").replace(/&\s*\n/g, '& ').replace(/\n/g, ',');
             let tType = c.ActiveTooltipType;
             if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
                 tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
@@ -257,8 +263,10 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
             });
 
             const pE = eS.map(e => {
+                let startConds = (e.StartCondition || "").split(',').map(s => s.trim()).filter(s => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${e.EventID}_`));
                 const newE = {
                     ...e,
+                    StartCondition: startConds.length > 0 ? startConds.join(',') : 'None',
                     TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
                     NpcID: eventToNpcMap[e.EventID] || e.NpcID || "",
                     Weight: eventToRandomMap[e.EventID]?.Weight !== undefined ? eventToRandomMap[e.EventID].Weight : (e.Weight !== undefined ? e.Weight : 100),

@@ -35,8 +35,14 @@ export const useGlobalStates = () => {
     const [undoStack, setUndoStack] = React.useState([]);
     const [redoStack, setRedoStack] = React.useState([]);
 
+    const toastTimeoutRef = React.useRef(null);
     const showToast = React.useCallback((msg) => {
         setToast({ show: true, message: msg });
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = setTimeout(() => {
+            setToast({ show: false, message: "" });
+            toastTimeoutRef.current = null;
+        }, 5000);
     }, []);
 
     const recordHistory = React.useCallback(() => {
