@@ -130,7 +130,8 @@
       "Event\uC2DC\uD2B8": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => {
         let startConds = (e.StartCondition || "").split(",").map((s) => s.trim()).filter((s) => s !== "" && s !== "None");
         if (e.IsRepeatable) {
-          startConds.push(`Cooldown_${e.EventID}_${e.CoolDown || 0}`);
+          const eventKey = e.EventID.replace(/^Event_/, "");
+          startConds.push(`Cooldown_${eventKey}_${e.CoolDown || 0}`);
         }
         return {
           ...e,
@@ -287,7 +288,8 @@
           };
         });
         const pE = eS.map((e) => {
-          let startConds = (e.StartCondition || "").split(",").map((s) => s.trim()).filter((s) => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${e.EventID}_`));
+          const eventKey = e.EventID.replace(/^Event_/, "");
+          let startConds = (e.StartCondition || "").split(",").map((s) => s.trim()).filter((s) => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${eventKey}_`));
           const newE = {
             ...e,
             StartCondition: startConds.length > 0 ? startConds.join(",") : "None",
@@ -1462,7 +1464,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.3"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.4"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
