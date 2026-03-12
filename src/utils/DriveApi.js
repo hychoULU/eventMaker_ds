@@ -266,7 +266,7 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
 
             const pE = eS.map(e => {
                 const eventKey = e.EventID.replace(/^Event_/, "");
-                let startConds = (e.StartCondition || "").split(',').map(s => s.trim()).filter(s => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${eventKey}_`));
+                let startConds = (e.StartCondition || "").split(',').map(s => s.trim()).filter(s => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${e.EventID}_`) && !s.startsWith(`Cooldown_${eventKey}_`));
                 const newE = {
                     ...e,
                     StartCondition: startConds.length > 0 ? startConds.join(',') : 'None',
