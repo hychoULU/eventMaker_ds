@@ -902,9 +902,10 @@
       setChoices(nextSnapshot.choices);
       showToast("Redo Successful");
     }, [redoStack, events, nodes, choices, showToast, setEvents, setNodes, setChoices, setRedoStack, setUndoStack]);
-    const handleCopy = import_react5.default.useCallback(() => {
-      if (selectedElement && selectedElement.type === "event") {
-        const eventToCopy = events.find((e) => e.EventID === selectedElement.id);
+    const handleCopy = import_react5.default.useCallback((targetId = null) => {
+      const idToCopy = typeof targetId === "string" && targetId ? targetId : selectedElement && selectedElement.type === "event" ? selectedElement.id : null;
+      if (idToCopy) {
+        const eventToCopy = events.find((e) => e.EventID === idToCopy);
         if (eventToCopy) {
           const nodesToCopy = nodes.filter((n) => n.LinkedEventID === eventToCopy.EventID);
           const nodeIdsToCopy = nodesToCopy.map((n) => n.NodeID);
@@ -919,10 +920,17 @@
         }
       }
     }, [selectedElement, events, nodes, choices, showToast, setClipboard]);
-    const handlePaste = import_react5.default.useCallback(() => {
+    const handlePaste = import_react5.default.useCallback((targetEventIdOrType = null) => {
       if (!clipboard || clipboard.type !== "event") return;
       recordHistory();
-      const targetType = events.find((e) => e.EventID === selectedEventId)?.EventType || "Fixed";
+      let targetType = "Fixed";
+      if (typeof targetEventIdOrType === "string" && ["Fixed", "Random", "Npc", "Tutorial"].includes(targetEventIdOrType)) {
+        targetType = targetEventIdOrType;
+      } else if (typeof targetEventIdOrType === "string" && targetEventIdOrType.startsWith("Event_")) {
+        targetType = events.find((e) => e.EventID === targetEventIdOrType)?.EventType || "Fixed";
+      } else {
+        targetType = events.find((e) => e.EventID === selectedEventId)?.EventType || "Fixed";
+      }
       const existingIndices = events.filter((e) => e.EventType === targetType).map((e) => parseInt(e.EventID.match(/\d+$/)[0])).sort((a, b) => a - b);
       let newIndex = 0;
       for (const index of existingIndices) {
@@ -1421,10 +1429,13 @@
         { className: "ctx-menu animate-fadeIn shadow-2xl", style: { left: ctxMenu.x, top: ctxMenu.y }, onClick: (e) => e.stopPropagation() },
         ctxMenu.type === "event" && import_react5.default.createElement("button", { onClick: () => {
           setSelectedElement({ type: "event", id: ctxMenu.id });
-          handleCopy();
+          handleCopy(ctxMenu.id);
           setCtxMenu({ show: false });
         }, className: "ctx-item" }, "Copy Event"),
-        (ctxMenu.type === "event" || ctxMenu.type === "event-list") && import_react5.default.createElement("button", { onClick: handlePaste, disabled: !clipboard, className: "ctx-item" }, "Paste Event"),
+        (ctxMenu.type === "event" || ctxMenu.type === "event-list") && import_react5.default.createElement("button", { onClick: () => {
+          handlePaste(ctxMenu.id);
+          setCtxMenu({ show: false });
+        }, disabled: !clipboard, className: "ctx-item" }, "Paste Event"),
         ctxMenu.type === "event" && import_react5.default.createElement("div", { className: "ctx-divider" }),
         !(ctxMenu.type === "node" && nodes.find((n) => n.NodeID === ctxMenu.id)?.depth === 0) && import_react5.default.createElement("button", { onClick: executeDelete, className: "ctx-item danger transition-colors" }, import_react5.default.createElement(Icon_default, { name: "Trash2", size: 14 }), " Delete"),
         ctxMenu.type === "choice" && import_react5.default.createElement(
@@ -1464,7 +1475,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.5"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.6"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
