@@ -387,7 +387,7 @@
   // src/utils/eventHelpers.js
   function getEventSummary(eventId) {
     if (!eventId) return "E";
-    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial)(\d+)/);
+    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial|Decision)(\d+)/);
     if (match && match[1] && match[2]) {
       const typeChar2 = match[1].charAt(0);
       const number = match[2];
@@ -410,12 +410,18 @@
       return null;
     }, [nodes, selectedEventId]);
     const getSmallestAvailableChoiceIndex = React.useCallback((nodeId) => {
-      const existingIndices = choices.filter((c) => c.LinkedNodeID === nodeId).map((c) => parseInt(c.ChoiceID.slice(-1)));
-      for (let i = 0; i < 3; i++) {
+      const node = nodes.find((n) => n.NodeID === nodeId);
+      const limit = node?.NodeType === "ExpeditionQuest" ? 50 : 3;
+      const prefix = nodeId.replace("Node", "Choice");
+      const existingIndices = choices.filter((c) => c.LinkedNodeID === nodeId).map((c) => {
+        const idxStr = c.ChoiceID.replace(prefix, "");
+        return parseInt(idxStr);
+      }).filter((idx) => !isNaN(idx));
+      for (let i = 0; i < limit; i++) {
         if (!existingIndices.includes(i)) return i;
       }
       return null;
-    }, [choices]);
+    }, [choices, nodes]);
     const createEvent = React.useCallback((type) => {
       recordHistory();
       const existingIndices = events.filter((e) => e.EventType === type).map((e) => parseInt(e.EventID.match(/\d+$/)[0])).sort((a, b) => a - b);
@@ -463,11 +469,13 @@
     }, [nodes, choices, selectedEventId, setNodes, setChoices, setSelectedElement, recordHistory, getSmallestAvailableNodeIndex, getEventSummary, showToast]);
     const createChoice = React.useCallback((nodeId) => {
       const node = nodes.find((n) => n.NodeID === nodeId);
-      if (!node || node.ChoiceIDs.length >= 3) return;
+      if (!node) return;
+      const limit = node.NodeType === "ExpeditionQuest" ? 50 : 3;
+      if (node.ChoiceIDs.length >= limit) return;
       recordHistory();
       const idx = getSmallestAvailableChoiceIndex(nodeId);
       if (idx === null) {
-        showToast("Choice limit (3) reached.");
+        showToast(`Choice limit (${limit}) reached.`);
         return;
       }
       const cid = `Choice${getEventSummary(selectedEventId)}${nodeId.slice(-2)}${idx}`;
@@ -669,7 +677,7 @@
       const typeA = a.EventType, typeB = b.EventType;
       const indexA = parseInt(a.EventID.match(/\d+$/)[0]);
       const indexB = parseInt(b.EventID.match(/\d+$/)[0]);
-      const typeOrder = ["Fixed", "Random", "Npc"];
+      const typeOrder = ["Fixed", "Random", "Npc", "Tutorial", "Decision"];
       if (typeA !== typeB) return typeOrder.indexOf(typeA) - typeOrder.indexOf(typeB);
       return indexA - indexB;
     });
@@ -686,6 +694,21 @@
       OnSelectAction: replaceIdsInString(c.OnSelectAction, idMap),
       ActiveTooltipValue: replaceIdsInString(c.ActiveTooltipValue, idMap)
     }));
+    if (originalType === "Decision" && newType !== "Decision") {
+      const draggedNewId = idMap[draggedEventId] || draggedEventId;
+      const removedChoiceIds = /* @__PURE__ */ new Set();
+      newNodes = newNodes.map((n) => {
+        if (n.LinkedEventID === draggedNewId && n.NodeType === "ExpeditionQuest") {
+          const keptChoices = n.ChoiceIDs.slice(0, 3);
+          n.ChoiceIDs.slice(3).forEach((cid) => removedChoiceIds.add(cid));
+          return { ...n, NodeType: "Normal", ChoiceIDs: keptChoices };
+        }
+        return n;
+      });
+      if (removedChoiceIds.size > 0) {
+        newChoices = newChoices.filter((c) => !removedChoiceIds.has(c.ChoiceID));
+      }
+    }
     return {
       newEvents,
       newNodes,
@@ -924,7 +947,7 @@
       if (!clipboard || clipboard.type !== "event") return;
       recordHistory();
       let targetType = "Fixed";
-      if (typeof targetEventIdOrType === "string" && ["Fixed", "Random", "Npc", "Tutorial"].includes(targetEventIdOrType)) {
+      if (typeof targetEventIdOrType === "string" && ["Fixed", "Random", "Npc", "Tutorial", "Decision"].includes(targetEventIdOrType)) {
         targetType = targetEventIdOrType;
       } else if (typeof targetEventIdOrType === "string" && targetEventIdOrType.startsWith("Event_")) {
         targetType = events.find((e) => e.EventID === targetEventIdOrType)?.EventType || "Fixed";
@@ -946,14 +969,28 @@
         const oldNodeId = node.NodeID;
         const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
         idMap[oldNodeId] = newNodeId;
+        let nodeType = node.NodeType;
+        if (clipboard.event.EventType === "Decision" && targetType !== "Decision" && nodeType === "ExpeditionQuest") {
+          nodeType = "Normal";
+        }
         return {
           ...node,
           NodeID: newNodeId,
           LinkedEventID: newEventId,
+          NodeType: nodeType,
           ChoiceIDs: []
         };
       });
-      const newChoices = clipboard.choices.map((choice) => {
+      const newChoices = clipboard.choices.filter((choice) => {
+        if (clipboard.event.EventType === "Decision" && targetType !== "Decision") {
+          const parentNode = clipboard.nodes.find((n) => n.NodeID === choice.LinkedNodeID);
+          if (parentNode && parentNode.NodeType === "ExpeditionQuest") {
+            const choiceIndex = parentNode.ChoiceIDs.indexOf(choice.ChoiceID);
+            if (choiceIndex >= 3) return false;
+          }
+        }
+        return true;
+      }).map((choice) => {
         const oldChoiceId = choice.ChoiceID;
         const newChoiceId = oldChoiceId.replace(`Choice${oldEventSummary}`, `Choice${newEventSummary}`);
         idMap[oldChoiceId] = newChoiceId;
@@ -1475,7 +1512,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.6"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.7"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1490,7 +1527,7 @@
         import_react5.default.createElement(
           "div",
           { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
-          ["Fixed", "Random", "Npc", "Tutorial"].map((type) => import_react5.default.createElement(
+          ["Fixed", "Random", "Npc", "Tutorial", "Decision"].map((type) => import_react5.default.createElement(
             "div",
             {
               key: type,
@@ -1502,7 +1539,7 @@
               className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
               onClick: () => setCollapsedSections((prev) => ({ ...prev, [type]: !prev[type] })),
               onMouseEnter: (e) => {
-                let content = type === "Fixed" ? "\uACE0\uC815\uB41C \uC2DC\uC810\uC5D0 \uB4F1\uC7A5 \uD558\uB294 \uC774\uBCA4\uD2B8. \uBC1C\uC0DD \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74, \uADF8 \uC2DC\uC810\uC5D0 \uC989\uC2DC \uD638\uCD9C \uD55C\uB2E4.Ex) \uC2A4\uD1A0\uB9AC \uC774\uBCA4\uD2B8, \uD018\uC2A4\uD2B8 \uC885\uB8CC\uC2DC \uC774\uBCA4\uD2B8..." : type === "Random" ? "\uCEA0\uD398\uC778 \uD0C0\uC784\uC5D0 \uB530\uB77C \uBC1C\uC0DD \uD558\uB294 \uC774\uBCA4\uD2B8 \uD480. \uB79C\uB364 \uC774\uBCA4\uD2B8 \uBC1C\uC0DD \uC2DC\uC810\uC5D0, \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74 \uBC1C\uC0DD \uD480\uC5D0 \uB123\uC5B4\uC11C \uC81C\uBE44\uBF51\uAE30 \uD55C\uB2E4.Ex) \uCC9C\uC0C9\uC870 \uC774\uBCA4\uD2B8\u2026" : type === "Npc" ? "NPC\uC640 \uAD00\uB828\uB41C \uACE0\uC815 \uC774\uBCA4\uD2B8." : "\uD29C\uD1A0\uB9AC\uC5BC\uACFC \uAD00\uB828\uB41C \uC774\uBCA4\uD2B8.";
+                let content = type === "Fixed" ? "\uACE0\uC815\uB41C \uC2DC\uC810\uC5D0 \uB4F1\uC7A5 \uD558\uB294 \uC774\uBCA4\uD2B8. \uBC1C\uC0DD \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74, \uADF8 \uC2DC\uC810\uC5D0 \uC989\uC2DC \uD638\uCD9C \uD55C\uB2E4.Ex) \uC2A4\uD1A0\uB9AC \uC774\uBCA4\uD2B8, \uD018\uC2A4\uD2B8 \uC885\uB8CC\uC2DC \uC774\uBCA4\uD2B8..." : type === "Random" ? "\uCEA0\uD398\uC778 \uD0C0\uC784\uC5D0 \uB530\uB77C \uBC1C\uC0DD \uD558\uB294 \uC774\uBCA4\uD2B8 \uD480. \uB79C\uB364 \uC774\uBCA4\uD2B8 \uBC1C\uC0DD \uC2DC\uC810\uC5D0, \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74 \uBC1C\uC0DD \uD480\uC5D0 \uB123\uC5B4\uC11C \uC81C\uBE44\uBF51\uAE30 \uD55C\uB2E4.Ex) \uCC9C\uC0C9\uC870 \uC774\uBCA4\uD2B8\u2026" : type === "Npc" ? "NPC\uC640 \uAD00\uB828\uB41C \uACE0\uC815 \uC774\uBCA4\uD2B8." : type === "Tutorial" ? "\uD29C\uD1A0\uB9AC\uC5BC\uACFC \uAD00\uB828\uB41C \uC774\uBCA4\uD2B8." : "\uC0AC\uC6A9\uC790\uC758 \uACB0\uC815\uC744 \uC694\uAD6C\uD558\uB294 \uC774\uBCA4\uD2B8.";
                 setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
               },
               onMouseLeave: () => setTooltip({ show: false })
@@ -1657,7 +1694,7 @@
                         !isEd && import_react5.default.createElement("div", { className: "flex gap-1.5 ml-2 shrink-0" }, c.ActiveTooltipType !== "None" && import_react5.default.createElement(Icon_default, { name: "Info", size: 11, className: c.ActiveTooltipType === "Probability" ? "text-blue-500" : "text-purple-400" }), import_react5.default.createElement(Icon_default, { name: "ArrowRight", size: 11, className: c.OnSelectAction ? "text-blue-500" : "text-gray-200" }))
                       );
                     }),
-                    node.ChoiceIDs.length < 3 && import_react5.default.createElement("button", { onClick: (e) => {
+                    node.ChoiceIDs.length < (node.NodeType === "ExpeditionQuest" ? 50 : 3) && import_react5.default.createElement("button", { onClick: (e) => {
                       e.stopPropagation();
                       createChoice(node.NodeID);
                     }, className: "w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold font-bold" }, "Add Choice")
@@ -1726,10 +1763,30 @@
           selectedElement.type === "node" && (() => {
             const node = nodes.find((n) => n.NodeID === selectedElement.id);
             if (!node) return null;
+            const event = events.find((e) => e.EventID === node.LinkedEventID);
+            const isDecision = event?.EventType === "Decision";
+            const nodeOptions = ["Normal", "Hidden"];
+            if (isDecision) nodeOptions.push("ExpeditionQuest");
             return import_react5.default.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement(PropField_default, { label: "Node ID", value: node.NodeID, readOnly: true }), import_react5.default.createElement(PropField_default, { label: "Type", value: node.NodeType, onChange: (v) => {
               recordHistory();
-              setNodes(nodes.map((n) => n.NodeID === node.NodeID ? { ...n, NodeType: v } : n));
-            }, type: "select", options: ["Normal", "Hidden"] }), import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: node.DevComment, onChange: (v) => {
+              let updatedNodes = [...nodes];
+              let updatedChoices = [...choices];
+              if (node.NodeType === "ExpeditionQuest" && v !== "ExpeditionQuest") {
+                updatedNodes = updatedNodes.map((n) => {
+                  if (n.NodeID === node.NodeID) {
+                    const keptChoices = n.ChoiceIDs.slice(0, 3);
+                    const removedChoices = new Set(n.ChoiceIDs.slice(3));
+                    updatedChoices = updatedChoices.filter((c) => !removedChoices.has(c.ChoiceID));
+                    return { ...n, NodeType: v, ChoiceIDs: keptChoices };
+                  }
+                  return n;
+                });
+                setChoices(updatedChoices);
+              } else {
+                updatedNodes = updatedNodes.map((n) => n.NodeID === node.NodeID ? { ...n, NodeType: v } : n);
+              }
+              setNodes(updatedNodes);
+            }, type: "select", options: nodeOptions }), import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: node.DevComment, onChange: (v) => {
               recordHistory();
               setNodes(nodes.map((n) => n.NodeID === node.NodeID ? { ...n, DevComment: v } : n));
             }, type: "textarea" }));

@@ -11,10 +11,19 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
     }, [nodes, selectedEventId]);
 
     const getSmallestAvailableChoiceIndex = React.useCallback((nodeId) => {
-        const existingIndices = choices.filter(c => c.LinkedNodeID === nodeId).map(c => parseInt(c.ChoiceID.slice(-1)));
-        for (let i = 0; i < 3; i++) { if (!existingIndices.includes(i)) return i; }
+        const node = nodes.find(n => n.NodeID === nodeId);
+        const limit = node?.NodeType === 'ExpeditionQuest' ? 50 : 3;
+        const prefix = nodeId.replace('Node', 'Choice');
+        const existingIndices = choices
+            .filter(c => c.LinkedNodeID === nodeId)
+            .map(c => {
+                const idxStr = c.ChoiceID.replace(prefix, '');
+                return parseInt(idxStr);
+            })
+            .filter(idx => !isNaN(idx));
+        for (let i = 0; i < limit; i++) { if (!existingIndices.includes(i)) return i; }
         return null;
-    }, [choices]);
+    }, [choices, nodes]);
 
     const createEvent = React.useCallback((type) => {
         recordHistory();
@@ -70,11 +79,14 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
 
     const createChoice = React.useCallback((nodeId) => {
         const node = nodes.find(n => n.NodeID === nodeId);
-        if (!node || node.ChoiceIDs.length >= 3) return;
+        if (!node) return;
+        const limit = node.NodeType === 'ExpeditionQuest' ? 50 : 3;
+        if (node.ChoiceIDs.length >= limit) return;
+        
         recordHistory();
         const idx = getSmallestAvailableChoiceIndex(nodeId);
         if (idx === null) {
-            showToast("Choice limit (3) reached.");
+            showToast(`Choice limit (${limit}) reached.`);
             return;
         }
         const cid = `Choice${getEventSummary(selectedEventId)}${nodeId.slice(-2)}${idx}`;

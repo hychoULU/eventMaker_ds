@@ -118,7 +118,7 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         const typeA = a.EventType, typeB = b.EventType;
         const indexA = parseInt(a.EventID.match(/\d+$/)[0]);
         const indexB = parseInt(b.EventID.match(/\d+$/)[0]);
-        const typeOrder = ['Fixed', 'Random', 'Npc'];
+        const typeOrder = ['Fixed', 'Random', 'Npc', 'Tutorial', 'Decision'];
         if(typeA !== typeB) return typeOrder.indexOf(typeA) - typeOrder.indexOf(typeB);
         return indexA - indexB;
     });
@@ -137,6 +137,24 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         OnSelectAction: replaceIdsInString(c.OnSelectAction, idMap),
         ActiveTooltipValue: replaceIdsInString(c.ActiveTooltipValue, idMap)
     }));
+
+    if (originalType === 'Decision' && newType !== 'Decision') {
+        const draggedNewId = idMap[draggedEventId] || draggedEventId;
+        const removedChoiceIds = new Set();
+        
+        newNodes = newNodes.map(n => {
+            if (n.LinkedEventID === draggedNewId && n.NodeType === 'ExpeditionQuest') {
+                const keptChoices = n.ChoiceIDs.slice(0, 3);
+                n.ChoiceIDs.slice(3).forEach(cid => removedChoiceIds.add(cid));
+                return { ...n, NodeType: 'Normal', ChoiceIDs: keptChoices };
+            }
+            return n;
+        });
+
+        if (removedChoiceIds.size > 0) {
+            newChoices = newChoices.filter(c => !removedChoiceIds.has(c.ChoiceID));
+        }
+    }
 
     return {
         newEvents,
