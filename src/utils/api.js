@@ -103,14 +103,23 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
         "Random매핑": randomMapping,
         "Npc매핑": npcMapping,
         "Event시트": events.map(({ NpcID, Weight, IsAlertShow, IsImmediate, ...e }) => {
-            let startConds = (e.StartCondition || "").split(',').map(s => s.trim()).filter(s => s !== "" && s !== "None");
+            const eventKey = e.EventID.replace(/^Event_/, "");
+            const startConds = (e.StartCondition || "")
+                .split(/\s*(?:&&|,)\s*/)
+                .map(s => s.trim())
+                .filter(s =>
+                    s !== "" &&
+                    s !== "None" &&
+                    !s.startsWith(`Cooldown_${e.EventID}_`) &&
+                    !s.startsWith(`Cooldown_${eventKey}_`)
+                );
+
             if (e.IsRepeatable) {
-                const eventKey = e.EventID.replace(/^Event_/, "");
                 startConds.push(`Cooldown_${eventKey}_${e.CoolDown || 0}`);
             }
             return {
                 ...e,
-                StartCondition: startConds.length > 0 ? startConds.join(',') : 'None',
+                StartCondition: startConds.length > 0 ? startConds.join(' && ') : 'None',
                 TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
                 EventScope: e.EventScope || "Scene"
             };
@@ -265,11 +274,28 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
 
             const pE = eS.map(e => {
                 const eventKey = e.EventID.replace(/^Event_/, "");
-                let startConds = (e.StartCondition || "").split(',').map(s => s.trim()).filter(s => s !== "" && s !== "None" && !s.startsWith(`Cooldown_${e.EventID}_`) && !s.startsWith(`Cooldown_${eventKey}_`));
+                let parsedCooldown = e.CoolDown !== undefined ? e.CoolDown : 0;
+                let parsedIsRepeatable = e.IsRepeatable || false;
+                const startConds = (e.StartCondition || "")
+                    .split(/\s*(?:&&|,)\s*/)
+                    .map(s => s.trim())
+                    .filter(s => s !== "" && s !== "None")
+                    .filter(s => {
+                        const match = s.match(new RegExp(`^Cooldown_(?:${e.EventID}|${eventKey})_(\\d+)$`));
+                        if (!match) {
+                            return true;
+                        }
+
+                        parsedIsRepeatable = true;
+                        parsedCooldown = parseInt(match[1], 10) || 0;
+                        return false;
+                    });
                 const newE = {
                     ...e,
-                    StartCondition: startConds.length > 0 ? startConds.join(',') : 'None',
+                    StartCondition: startConds.length > 0 ? startConds.join(' && ') : 'None',
                     TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
+                    IsRepeatable: parsedIsRepeatable,
+                    CoolDown: parsedCooldown,
                     NpcID: eventToNpcMap[e.EventID] || e.NpcID || "",
                     Weight: eventToRandomMap[e.EventID]?.Weight !== undefined ? eventToRandomMap[e.EventID].Weight : (e.Weight !== undefined ? e.Weight : 100),
                     IsAlertShow: eventToRandomMap[e.EventID]?.IsAlertShow !== undefined ? eventToRandomMap[e.EventID].IsAlertShow : (e.IsAlertShow !== undefined ? e.IsAlertShow : (e.IsImmediate || false))
