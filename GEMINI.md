@@ -44,6 +44,7 @@ CoolDown
 Node시트
 NodeID
 DevComment
+IllustKey
 LinkedEventID
 NodeType
 ChoiceIDs
@@ -116,14 +117,15 @@ Decision 이벤트를 다른 타입으로 옮기거나, ExpeditionQuest Node를 
 
 
 4. 
-비주얼 이벤트 에디터(Visual Event Editor) 시스템 명세서 (v3.3.7 기준)
+비주얼 이벤트 에디터(Visual Event Editor) 시스템 명세서 (v3.3.8 기준)
 
 1) 데이터 구조 및 논리 규칙
 
 이벤트(Event): 각 이벤트는 고유의 시작 노드(Depth 0)를 가지며, 생성 시 시작 노드와 기본 선택지 1개를 함께 만든다.
-v3.3.7 기준, Fixed / Random / Npc / Tutorial / Decision 총 5타입의 이벤트를 가진다.
+v3.3.8 기준, Fixed / Random / Npc / Tutorial / Decision 총 5타입의 이벤트를 가진다.
 노드(Node):
 타입: 기본적으로 Normal, Hidden을 지원한다. ExpeditionQuest는 Decision 이벤트에서만 선택 가능하다.
+IllustKey: 노드별 일러스트 참조용 텍스트 키이며, 값이 없으면 빈 문자열로 관리한다.
 ID 생성 규칙: Node + 타입약어 + 숫자 + 뎁스 + 인덱스 조합으로 생성하며, 삭제된 ID의 빈자리를 우선 채우는 지능형 인덱싱을 사용한다.
 표시 스타일: 지문(DevComment)은 정자체(Non-italic)로 표기하며, 줄바꿈(\n)이 화면에 그대로 반영되는 whitespace-pre-wrap 속성을 가진다.
 선택지(Choice): 노드 하단에 위치하며, 드래그 앤 드롭을 통해 노드 간 연결을 생성한다.

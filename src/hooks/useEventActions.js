@@ -48,7 +48,7 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
             newEvent.Weight = 100;
             newEvent.IsAlertShow = false;
         }
-        const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
+        const startNode = { NodeID: startId, DevComment: "Start Point", IllustKey: "", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
         const startChoice = { ChoiceID: startChoiceId, DevComment: "새 선택지", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
         
         setEvents(prev => [...prev, newEvent]);
@@ -69,7 +69,7 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
         const choiceIdx = 0; // Default first choice
         const cid = `Choice${getEventSummary(selectedEventId)}${depth}${nodeIdx}${choiceIdx}`;
 
-        const newNode = { NodeID: nid, DevComment: "지문 내용을 입력하세요.", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [cid], depth };
+        const newNode = { NodeID: nid, DevComment: "지문 내용을 입력하세요.", IllustKey: "", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [cid], depth };
         const newChoice = { ChoiceID: cid, DevComment: "새 선택지", LinkedNodeID: nid, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
 
         setNodes(prev => [...prev, newNode]);

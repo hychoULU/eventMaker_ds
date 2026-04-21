@@ -238,7 +238,7 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
 
             recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
-            const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+            const pN = nS.map(n => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
             const pC = cS.map(c => {
                 const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";

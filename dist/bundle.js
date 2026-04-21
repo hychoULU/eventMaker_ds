@@ -250,7 +250,7 @@
         const data = typeof fileContentResponse.body === "string" ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
-        const pN = nS.map((n) => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+        const pN = nS.map((n) => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
         const pC = cS.map((c) => {
           const uiAct = (c.OnSelectAction || "").replace(/,/g, "\n");
           let tT = "None", tV = "";
@@ -455,7 +455,7 @@
         newEvent.Weight = 100;
         newEvent.IsAlertShow = false;
       }
-      const startNode = { NodeID: startId, DevComment: "Start Point", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
+      const startNode = { NodeID: startId, DevComment: "Start Point", IllustKey: "", LinkedEventID: id, NodeType: "Normal", ChoiceIDs: [startChoiceId], depth: 0 };
       const startChoice = { ChoiceID: startChoiceId, DevComment: "\uC0C8 \uC120\uD0DD\uC9C0", LinkedNodeID: startId, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
       setEvents((prev) => [...prev, newEvent]);
       setNodes((prev) => [...prev, startNode]);
@@ -475,7 +475,7 @@
       const nid = `Node${getEventSummary(selectedEventId)}${depth}${nodeIdx}`;
       const choiceIdx = 0;
       const cid = `Choice${getEventSummary(selectedEventId)}${depth}${nodeIdx}${choiceIdx}`;
-      const newNode = { NodeID: nid, DevComment: "\uC9C0\uBB38 \uB0B4\uC6A9\uC744 \uC785\uB825\uD558\uC138\uC694.", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [cid], depth };
+      const newNode = { NodeID: nid, DevComment: "\uC9C0\uBB38 \uB0B4\uC6A9\uC744 \uC785\uB825\uD558\uC138\uC694.", IllustKey: "", LinkedEventID: selectedEventId, NodeType: "Normal", ChoiceIDs: [cid], depth };
       const newChoice = { ChoiceID: cid, DevComment: "\uC0C8 \uC120\uD0DD\uC9C0", LinkedNodeID: nid, ActiveCondition: "None", OnSelectAction: "", ActiveTooltipType: "None", ActiveTooltipValue: "" };
       setNodes((prev) => [...prev, newNode]);
       setChoices((prev) => [...prev, newChoice]);
@@ -1373,7 +1373,7 @@
         const data = JSON.parse(importText);
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
-        const pN = nS.map((n) => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+        const pN = nS.map((n) => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
         const pC = cS.map((c) => {
           const uiAct = (c.OnSelectAction || "").replace(/,/g, "\n");
           let tT = "None", tV = "";
@@ -1526,7 +1526,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.7"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.8"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1781,7 +1781,10 @@
             const isDecision = event?.EventType === "Decision";
             const nodeOptions = ["Normal", "Hidden"];
             if (isDecision) nodeOptions.push("ExpeditionQuest");
-            return import_react5.default.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement(PropField_default, { label: "Node ID", value: node.NodeID, readOnly: true }), import_react5.default.createElement(PropField_default, { label: "Type", value: node.NodeType, onChange: (v) => {
+            return import_react5.default.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement(PropField_default, { label: "Node ID", value: node.NodeID, readOnly: true }), import_react5.default.createElement(PropField_default, { label: "Illust Key", value: node.IllustKey ?? "", onChange: (v) => {
+              recordHistory();
+              setNodes(nodes.map((n) => n.NodeID === node.NodeID ? { ...n, IllustKey: v } : n));
+            } }), import_react5.default.createElement(PropField_default, { label: "Type", value: node.NodeType, onChange: (v) => {
               recordHistory();
               let updatedNodes = [...nodes];
               let updatedChoices = [...choices];

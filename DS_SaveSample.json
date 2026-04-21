@@ -16,6 +16,7 @@
     {
       "NodeID": "NodeR000",
       "DevComment": "{0}이 단원들과 노름판을 벌이고 주사위 내기를 하는 것을 당신이 빤히 바라보자, 그의 관심이 당신에게로 향합니다.\n\n\"마침 잘 오셨습니다 단장. 저랑 승부 한판 어떠십니까?\"\n\n그는 간단하게 게임 규칙을 설명합니다.\n\n\"오직 운으로만 결정되니 그 무엇도 이 보다 공평할 수는 없을 겁니다.\"\n\n그가 당신의 대답을 기다리며 응시합니다.",
+      "IllustKey": "",
       "LinkedEventID": "Event_Random0",
       "NodeType": "Normal",
       "ChoiceIDs": [
@@ -27,6 +28,7 @@
     {
       "NodeID": "NodeR010",
       "DevComment": "당신이 이겼습니다.",
+      "IllustKey": "",
       "LinkedEventID": "Event_Random0",
       "NodeType": "Normal",
       "ChoiceIDs": [
@@ -36,6 +38,7 @@
     {
       "NodeID": "NodeR011",
       "DevComment": "당신이 졌습니다. {0}이 실실 웃습니다",
+      "IllustKey": "",
       "LinkedEventID": "Event_Random0",
       "NodeType": "Normal",
       "ChoiceIDs": [
@@ -45,6 +48,7 @@
     {
       "NodeID": "NodeR012",
       "DevComment": "전부 몰수! {0}이 울상을 짓습니다.",
+      "IllustKey": "",
       "LinkedEventID": "Event_Random0",
       "NodeType": "Normal",
       "ChoiceIDs": [

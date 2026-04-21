@@ -559,7 +559,7 @@ const App = () => {
         try {
             const data = JSON.parse(importText); recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
-            const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+            const pN = nS.map(n => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
             const pC = cS.map(c => {
                 const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";
@@ -701,7 +701,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.7"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.8"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -870,7 +870,7 @@ const App = () => {
                         const isDecision = event?.EventType === 'Decision';
                         const nodeOptions = ["Normal", "Hidden"];
                         if (isDecision) nodeOptions.push("ExpeditionQuest");
-                        return React.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(PropField, { label: "Node ID", value: node.NodeID, readOnly: true }), React.createElement(PropField, { label: "Type", value: node.NodeType, onChange: v => { 
+                        return React.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(PropField, { label: "Node ID", value: node.NodeID, readOnly: true }), React.createElement(PropField, { label: "Illust Key", value: node.IllustKey ?? "", onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, IllustKey: v} : n)); } }), React.createElement(PropField, { label: "Type", value: node.NodeType, onChange: v => {
     recordHistory(); 
     let updatedNodes = [...nodes];
     let updatedChoices = [...choices];
