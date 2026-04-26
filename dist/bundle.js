@@ -41,6 +41,33 @@
   var FOLDER_ID = "1aVLAXF9mSMgBBq9KonoDEjVNOeG_XaTg";
   var SCOPES = "https://www.googleapis.com/auth/drive";
 
+  // src/utils/eventHelpers.js
+  function getEventSummary(eventId) {
+    if (!eventId) return "E";
+    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial|Decision)(\d+)/);
+    if (match && match[1] && match[2]) {
+      const typeChar2 = match[1].charAt(0);
+      const number = match[2];
+      return `${typeChar2}${number}`;
+    }
+    const parts = eventId.split("_");
+    const typeChar = parts[1] ? parts[1].charAt(0) : "F";
+    const numMatch = parts[1]?.match(/\d+/);
+    return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
+  }
+  var NODE_TYPE_DECISION_QUEST = "DecisionQuest";
+  var NODE_TYPE_DECISION_END = "DecisionEnd";
+  var LEGACY_NODE_TYPE_EXPEDITION_QUEST = "ExpeditionQuest";
+  function normalizeNodeType(nodeType) {
+    return nodeType === LEGACY_NODE_TYPE_EXPEDITION_QUEST ? NODE_TYPE_DECISION_QUEST : nodeType;
+  }
+  function isDecisionQuestNodeType(nodeType) {
+    return normalizeNodeType(nodeType) === NODE_TYPE_DECISION_QUEST;
+  }
+  function getNodeChoiceLimit(nodeType) {
+    return isDecisionQuestNodeType(nodeType) ? 50 : 3;
+  }
+
   // src/utils/DriveApi.js
   var tokenClient;
   var postAuthAction = null;
@@ -142,7 +169,10 @@
           EventScope: e.EventScope || "Scene"
         };
       }),
-      "Node\uC2DC\uD2B8": nodes.map(({ depth, ...rest }) => rest),
+      "Node\uC2DC\uD2B8": nodes.map(({ depth, ...rest }) => ({
+        ...rest,
+        NodeType: normalizeNodeType(rest.NodeType)
+      })),
       "Choice\uC2DC\uD2B8": choices.map((c) => {
         const actionStr = (c.OnSelectAction || "").replace(/&\s*\n/g, "& ").replace(/\n/g, ",");
         let tType = c.ActiveTooltipType;
@@ -250,7 +280,7 @@
         const data = typeof fileContentResponse.body === "string" ? JSON.parse(fileContentResponse.body) : fileContentResponse.result;
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
-        const pN = nS.map((n) => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+        const pN = nS.map((n) => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
         const pC = cS.map((c) => {
           const uiAct = (c.OnSelectAction || "").replace(/,/g, "\n");
           let tT = "None", tV = "";
@@ -398,21 +428,6 @@
   );
   var PropField_default = PropField;
 
-  // src/utils/eventHelpers.js
-  function getEventSummary(eventId) {
-    if (!eventId) return "E";
-    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial|Decision)(\d+)/);
-    if (match && match[1] && match[2]) {
-      const typeChar2 = match[1].charAt(0);
-      const number = match[2];
-      return `${typeChar2}${number}`;
-    }
-    const parts = eventId.split("_");
-    const typeChar = parts[1] ? parts[1].charAt(0) : "F";
-    const numMatch = parts[1]?.match(/\d+/);
-    return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
-  }
-
   // src/hooks/useEventActions.js
   var import_react3 = __toESM(require_react());
   var useEventActions = (events, setEvents, nodes, setNodes, choices, setChoices, selectedEventId, setSelectedEventId, setSelectedElement, recordHistory, showToast) => {
@@ -425,7 +440,7 @@
     }, [nodes, selectedEventId]);
     const getSmallestAvailableChoiceIndex = React.useCallback((nodeId) => {
       const node = nodes.find((n) => n.NodeID === nodeId);
-      const limit = node?.NodeType === "ExpeditionQuest" ? 50 : 3;
+      const limit = getNodeChoiceLimit(node?.NodeType);
       const prefix = nodeId.replace("Node", "Choice");
       const existingIndices = choices.filter((c) => c.LinkedNodeID === nodeId).map((c) => {
         const idxStr = c.ChoiceID.replace(prefix, "");
@@ -484,7 +499,7 @@
     const createChoice = React.useCallback((nodeId) => {
       const node = nodes.find((n) => n.NodeID === nodeId);
       if (!node) return;
-      const limit = node.NodeType === "ExpeditionQuest" ? 50 : 3;
+      const limit = getNodeChoiceLimit(node.NodeType);
       if (node.ChoiceIDs.length >= limit) return;
       recordHistory();
       const idx = getSmallestAvailableChoiceIndex(nodeId);
@@ -699,6 +714,7 @@
       ...n,
       NodeID: idMap[n.NodeID] || n.NodeID,
       LinkedEventID: idMap[n.LinkedEventID] || n.LinkedEventID,
+      NodeType: normalizeNodeType(n.NodeType),
       ChoiceIDs: n.ChoiceIDs.map((cid) => idMap[cid] || cid)
     }));
     newChoices = newChoices.map((c) => ({
@@ -712,7 +728,7 @@
       const draggedNewId = idMap[draggedEventId] || draggedEventId;
       const removedChoiceIds = /* @__PURE__ */ new Set();
       newNodes = newNodes.map((n) => {
-        if (n.LinkedEventID === draggedNewId && n.NodeType === "ExpeditionQuest") {
+        if (n.LinkedEventID === draggedNewId && isDecisionQuestNodeType(n.NodeType)) {
           const keptChoices = n.ChoiceIDs.slice(0, 3);
           n.ChoiceIDs.slice(3).forEach((cid) => removedChoiceIds.add(cid));
           return { ...n, NodeType: "Normal", ChoiceIDs: keptChoices };
@@ -983,8 +999,8 @@
         const oldNodeId = node.NodeID;
         const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
         idMap[oldNodeId] = newNodeId;
-        let nodeType = node.NodeType;
-        if (clipboard.event.EventType === "Decision" && targetType !== "Decision" && nodeType === "ExpeditionQuest") {
+        let nodeType = normalizeNodeType(node.NodeType);
+        if (clipboard.event.EventType === "Decision" && targetType !== "Decision" && isDecisionQuestNodeType(nodeType)) {
           nodeType = "Normal";
         }
         return {
@@ -998,7 +1014,7 @@
       const newChoices = clipboard.choices.filter((choice) => {
         if (clipboard.event.EventType === "Decision" && targetType !== "Decision") {
           const parentNode = clipboard.nodes.find((n) => n.NodeID === choice.LinkedNodeID);
-          if (parentNode && parentNode.NodeType === "ExpeditionQuest") {
+          if (parentNode && isDecisionQuestNodeType(parentNode.NodeType)) {
             const choiceIndex = parentNode.ChoiceIDs.indexOf(choice.ChoiceID);
             if (choiceIndex >= 3) return false;
           }
@@ -1373,7 +1389,7 @@
         const data = JSON.parse(importText);
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
-        const pN = nS.map((n) => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+        const pN = nS.map((n) => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
         const pC = cS.map((c) => {
           const uiAct = (c.OnSelectAction || "").replace(/,/g, "\n");
           let tT = "None", tV = "";
@@ -1526,7 +1542,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.8"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.9"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1708,7 +1724,7 @@
                         !isEd && import_react5.default.createElement("div", { className: "flex gap-1.5 ml-2 shrink-0" }, c.ActiveTooltipType !== "None" && import_react5.default.createElement(Icon_default, { name: "Info", size: 11, className: c.ActiveTooltipType === "Probability" ? "text-blue-500" : "text-purple-400" }), import_react5.default.createElement(Icon_default, { name: "ArrowRight", size: 11, className: c.OnSelectAction ? "text-blue-500" : "text-gray-200" }))
                       );
                     }),
-                    node.ChoiceIDs.length < (node.NodeType === "ExpeditionQuest" ? 50 : 3) && import_react5.default.createElement("button", { onClick: (e) => {
+                    node.ChoiceIDs.length < getNodeChoiceLimit(node.NodeType) && import_react5.default.createElement("button", { onClick: (e) => {
                       e.stopPropagation();
                       createChoice(node.NodeID);
                     }, className: "w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold font-bold" }, "Add Choice")
@@ -1780,27 +1796,29 @@
             const event = events.find((e) => e.EventID === node.LinkedEventID);
             const isDecision = event?.EventType === "Decision";
             const nodeOptions = ["Normal", "Hidden"];
-            if (isDecision) nodeOptions.push("ExpeditionQuest");
+            if (isDecision) nodeOptions.push(NODE_TYPE_DECISION_QUEST);
+            nodeOptions.push(NODE_TYPE_DECISION_END);
             return import_react5.default.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, import_react5.default.createElement(PropField_default, { label: "Node ID", value: node.NodeID, readOnly: true }), import_react5.default.createElement(PropField_default, { label: "Illust Key", value: node.IllustKey ?? "", onChange: (v) => {
               recordHistory();
               setNodes(nodes.map((n) => n.NodeID === node.NodeID ? { ...n, IllustKey: v } : n));
-            } }), import_react5.default.createElement(PropField_default, { label: "Type", value: node.NodeType, onChange: (v) => {
+            } }), import_react5.default.createElement(PropField_default, { label: "Type", value: normalizeNodeType(node.NodeType), onChange: (v) => {
               recordHistory();
               let updatedNodes = [...nodes];
               let updatedChoices = [...choices];
-              if (node.NodeType === "ExpeditionQuest" && v !== "ExpeditionQuest") {
+              const nextNodeType = normalizeNodeType(v);
+              if (isDecisionQuestNodeType(node.NodeType) && !isDecisionQuestNodeType(nextNodeType)) {
                 updatedNodes = updatedNodes.map((n) => {
                   if (n.NodeID === node.NodeID) {
                     const keptChoices = n.ChoiceIDs.slice(0, 3);
                     const removedChoices = new Set(n.ChoiceIDs.slice(3));
                     updatedChoices = updatedChoices.filter((c) => !removedChoices.has(c.ChoiceID));
-                    return { ...n, NodeType: v, ChoiceIDs: keptChoices };
+                    return { ...n, NodeType: nextNodeType, ChoiceIDs: keptChoices };
                   }
                   return n;
                 });
                 setChoices(updatedChoices);
               } else {
-                updatedNodes = updatedNodes.map((n) => n.NodeID === node.NodeID ? { ...n, NodeType: v } : n);
+                updatedNodes = updatedNodes.map((n) => n.NodeID === node.NodeID ? { ...n, NodeType: nextNodeType } : n);
               }
               setNodes(updatedNodes);
             }, type: "select", options: nodeOptions }), import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: node.DevComment, onChange: (v) => {

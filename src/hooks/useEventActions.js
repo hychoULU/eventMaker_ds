@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { getEventSummary } from '../utils/eventHelpers.js';
+import { getEventSummary, getNodeChoiceLimit } from '../utils/eventHelpers.js';
 
 export const useEventActions = (events, setEvents, nodes, setNodes, choices, setChoices, selectedEventId, setSelectedEventId, setSelectedElement, recordHistory, showToast) => {
     const getSmallestAvailableNodeIndex = React.useCallback((depth) => {
@@ -12,7 +12,7 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
 
     const getSmallestAvailableChoiceIndex = React.useCallback((nodeId) => {
         const node = nodes.find(n => n.NodeID === nodeId);
-        const limit = node?.NodeType === 'ExpeditionQuest' ? 50 : 3;
+        const limit = getNodeChoiceLimit(node?.NodeType);
         const prefix = nodeId.replace('Node', 'Choice');
         const existingIndices = choices
             .filter(c => c.LinkedNodeID === nodeId)
@@ -80,7 +80,7 @@ export const useEventActions = (events, setEvents, nodes, setNodes, choices, set
     const createChoice = React.useCallback((nodeId) => {
         const node = nodes.find(n => n.NodeID === nodeId);
         if (!node) return;
-        const limit = node.NodeType === 'ExpeditionQuest' ? 50 : 3;
+        const limit = getNodeChoiceLimit(node.NodeType);
         if (node.ChoiceIDs.length >= limit) return;
         
         recordHistory();

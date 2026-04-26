@@ -1,4 +1,5 @@
 import { CLIENT_ID, API_KEY, FOLDER_ID, SCOPES } from '../utils/constants.js';
+import { normalizeNodeType } from './eventHelpers.js';
 
 let tokenClient;
 let postAuthAction = null; // Stored here, managed by executeAfterAuth
@@ -117,7 +118,10 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
                 EventScope: e.EventScope || "Scene"
             };
         }),
-        "Node시트": nodes.map(({ depth, ...rest }) => rest),
+        "Node시트": nodes.map(({ depth, ...rest }) => ({
+            ...rest,
+            NodeType: normalizeNodeType(rest.NodeType)
+        })),
         "Choice시트": choices.map(c => {
             const actionStr = (c.OnSelectAction || "").replace(/&\s*\n/g, '& ').replace(/\n/g, ',');
             let tType = c.ActiveTooltipType;
@@ -238,7 +242,7 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
 
             recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
-            const pN = nS.map(n => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+            const pN = nS.map(n => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
             const pC = cS.map(c => {
                 const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";

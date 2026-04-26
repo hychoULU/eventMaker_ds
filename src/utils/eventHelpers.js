@@ -13,4 +13,19 @@ export function getEventSummary(eventId) {
     return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
 }
 
-// Other event helper functions will go here.
+export const NODE_TYPE_DECISION_QUEST = 'DecisionQuest';
+export const NODE_TYPE_DECISION_END = 'DecisionEnd';
+
+const LEGACY_NODE_TYPE_EXPEDITION_QUEST = 'ExpeditionQuest';
+
+export function normalizeNodeType(nodeType) {
+    return nodeType === LEGACY_NODE_TYPE_EXPEDITION_QUEST ? NODE_TYPE_DECISION_QUEST : nodeType;
+}
+
+export function isDecisionQuestNodeType(nodeType) {
+    return normalizeNodeType(nodeType) === NODE_TYPE_DECISION_QUEST;
+}
+
+export function getNodeChoiceLimit(nodeType) {
+    return isDecisionQuestNodeType(nodeType) ? 50 : 3;
+}

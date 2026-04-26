@@ -1,4 +1,4 @@
-import { getEventSummary } from './eventHelpers.js';
+import { getEventSummary, isDecisionQuestNodeType, normalizeNodeType } from './eventHelpers.js';
 
 /**
  * Updates all references to old IDs within a given string based on a provided ID map.
@@ -127,6 +127,7 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         ...n,
         NodeID: idMap[n.NodeID] || n.NodeID,
         LinkedEventID: idMap[n.LinkedEventID] || n.LinkedEventID,
+        NodeType: normalizeNodeType(n.NodeType),
         ChoiceIDs: n.ChoiceIDs.map(cid => idMap[cid] || cid)
     }));
     
@@ -143,7 +144,7 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         const removedChoiceIds = new Set();
         
         newNodes = newNodes.map(n => {
-            if (n.LinkedEventID === draggedNewId && n.NodeType === 'ExpeditionQuest') {
+            if (n.LinkedEventID === draggedNewId && isDecisionQuestNodeType(n.NodeType)) {
                 const keptChoices = n.ChoiceIDs.slice(0, 3);
                 n.ChoiceIDs.slice(3).forEach(cid => removedChoiceIds.add(cid));
                 return { ...n, NodeType: 'Normal', ChoiceIDs: keptChoices };

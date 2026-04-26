@@ -3,7 +3,14 @@ import React, { useEffect, useCallback, useMemo } from 'react';
 import { initGoogleApis, executeAfterAuth, uploadToDrive, loadFromDrive } from './utils/DriveApi.js';
 import Icon from './components/Icon.js';
 import PropField from './components/PropField.js';
-import { getEventSummary } from './utils/eventHelpers.js';
+import {
+    getEventSummary,
+    getNodeChoiceLimit,
+    isDecisionQuestNodeType,
+    normalizeNodeType,
+    NODE_TYPE_DECISION_END,
+    NODE_TYPE_DECISION_QUEST
+} from './utils/eventHelpers.js';
 import { useEventActions } from './hooks/useEventActions.js';
 import { useGlobalStates } from './hooks/useGlobalStates.js';
 import { reindexDataAfterDrag } from './utils/eventDragDrop.js';
@@ -153,8 +160,8 @@ const App = () => {
             const oldNodeId = node.NodeID;
             const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
             idMap[oldNodeId] = newNodeId;
-            let nodeType = node.NodeType;
-            if (clipboard.event.EventType === 'Decision' && targetType !== 'Decision' && nodeType === 'ExpeditionQuest') {
+            let nodeType = normalizeNodeType(node.NodeType);
+            if (clipboard.event.EventType === 'Decision' && targetType !== 'Decision' && isDecisionQuestNodeType(nodeType)) {
                 nodeType = 'Normal';
             }
             return {
@@ -169,7 +176,7 @@ const App = () => {
         const newChoices = clipboard.choices.filter(choice => {
             if (clipboard.event.EventType === 'Decision' && targetType !== 'Decision') {
                 const parentNode = clipboard.nodes.find(n => n.NodeID === choice.LinkedNodeID);
-                if (parentNode && parentNode.NodeType === 'ExpeditionQuest') {
+                if (parentNode && isDecisionQuestNodeType(parentNode.NodeType)) {
                     const choiceIndex = parentNode.ChoiceIDs.indexOf(choice.ChoiceID);
                     if (choiceIndex >= 3) return false;
                 }
@@ -559,7 +566,7 @@ const App = () => {
         try {
             const data = JSON.parse(importText); recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
-            const pN = nS.map(n => ({ ...n, IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+            const pN = nS.map(n => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
             const pC = cS.map(c => {
                 const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";
@@ -701,7 +708,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.8"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.9"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -832,7 +839,7 @@ const App = () => {
                                                         )
                                                     );
                                                 }),
-                                                node.ChoiceIDs.length < (node.NodeType === 'ExpeditionQuest' ? 50 : 3) && React.createElement("button", { onClick: (e) => { e.stopPropagation(); createChoice(node.NodeID); }, className: "w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold font-bold" }, "Add Choice")
+                                                node.ChoiceIDs.length < getNodeChoiceLimit(node.NodeType) && React.createElement("button", { onClick: (e) => { e.stopPropagation(); createChoice(node.NodeID); }, className: "w-full py-1.5 border border-dashed border-gray-200 rounded-xl text-[10px] text-gray-300 hover:bg-gray-50 hover:text-blue-500 transition-all uppercase tracking-widest mt-1 shadow-sm font-bold font-bold font-bold font-bold" }, "Add Choice")
                                             )
                                         )
                                     )
@@ -869,25 +876,27 @@ const App = () => {
                         const event = events.find(e => e.EventID === node.LinkedEventID);
                         const isDecision = event?.EventType === 'Decision';
                         const nodeOptions = ["Normal", "Hidden"];
-                        if (isDecision) nodeOptions.push("ExpeditionQuest");
-                        return React.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(PropField, { label: "Node ID", value: node.NodeID, readOnly: true }), React.createElement(PropField, { label: "Illust Key", value: node.IllustKey ?? "", onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, IllustKey: v} : n)); } }), React.createElement(PropField, { label: "Type", value: node.NodeType, onChange: v => {
+                        if (isDecision) nodeOptions.push(NODE_TYPE_DECISION_QUEST);
+                        nodeOptions.push(NODE_TYPE_DECISION_END);
+                        return React.createElement("div", { className: "space-y-4 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold" }, React.createElement(PropField, { label: "Node ID", value: node.NodeID, readOnly: true }), React.createElement(PropField, { label: "Illust Key", value: node.IllustKey ?? "", onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, IllustKey: v} : n)); } }), React.createElement(PropField, { label: "Type", value: normalizeNodeType(node.NodeType), onChange: v => {
     recordHistory(); 
     let updatedNodes = [...nodes];
     let updatedChoices = [...choices];
+    const nextNodeType = normalizeNodeType(v);
     
-    if (node.NodeType === 'ExpeditionQuest' && v !== 'ExpeditionQuest') {
+    if (isDecisionQuestNodeType(node.NodeType) && !isDecisionQuestNodeType(nextNodeType)) {
         updatedNodes = updatedNodes.map(n => {
             if (n.NodeID === node.NodeID) {
                 const keptChoices = n.ChoiceIDs.slice(0, 3);
                 const removedChoices = new Set(n.ChoiceIDs.slice(3));
                 updatedChoices = updatedChoices.filter(c => !removedChoices.has(c.ChoiceID));
-                return { ...n, NodeType: v, ChoiceIDs: keptChoices };
+                return { ...n, NodeType: nextNodeType, ChoiceIDs: keptChoices };
             }
             return n;
         });
         setChoices(updatedChoices);
     } else {
-        updatedNodes = updatedNodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: v} : n);
+        updatedNodes = updatedNodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: nextNodeType} : n);
     }
     setNodes(updatedNodes);
 }, type: "select", options: nodeOptions }), React.createElement(PropField, { label: "Dev Comment", value: node.DevComment, onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: v} : n)); }, type: "textarea" }));
