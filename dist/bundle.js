@@ -57,6 +57,11 @@
   }
   var NODE_TYPE_DECISION_QUEST = "DecisionQuest";
   var NODE_TYPE_DECISION_END = "DecisionEnd";
+  var TOOLTIP_TYPE_NONE = "None";
+  var TOOLTIP_TYPE_SHOW_ACTION = "ShowAction";
+  var TOOLTIP_TYPE_SHOW_CHOICE_ACTION = "ShowChoiceAction";
+  var TOOLTIP_TYPE_PROBABILITY = "Probability";
+  var TOOLTIP_TYPE_SHOW_DECISION_REWARD = "ShowDecisionReward";
   var LEGACY_NODE_TYPE_EXPEDITION_QUEST = "ExpeditionQuest";
   function normalizeNodeType(nodeType) {
     return nodeType === LEGACY_NODE_TYPE_EXPEDITION_QUEST ? NODE_TYPE_DECISION_QUEST : nodeType;
@@ -64,8 +69,39 @@
   function isDecisionQuestNodeType(nodeType) {
     return normalizeNodeType(nodeType) === NODE_TYPE_DECISION_QUEST;
   }
+  function isDecisionEndNodeType(nodeType) {
+    return normalizeNodeType(nodeType) === NODE_TYPE_DECISION_END;
+  }
   function getNodeChoiceLimit(nodeType) {
     return isDecisionQuestNodeType(nodeType) ? 50 : 3;
+  }
+  function normalizeChoiceTooltipType(tooltipType, parentNodeType) {
+    if (tooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD && !isDecisionEndNodeType(parentNodeType)) {
+      return TOOLTIP_TYPE_SHOW_ACTION;
+    }
+    return tooltipType || TOOLTIP_TYPE_NONE;
+  }
+  function getChoiceTooltipOptions(parentNodeType) {
+    const options = [
+      TOOLTIP_TYPE_NONE,
+      TOOLTIP_TYPE_SHOW_ACTION,
+      TOOLTIP_TYPE_SHOW_CHOICE_ACTION,
+      TOOLTIP_TYPE_PROBABILITY
+    ];
+    return isDecisionEndNodeType(parentNodeType) ? [...options, TOOLTIP_TYPE_SHOW_DECISION_REWARD] : options;
+  }
+  function normalizeChoicesForParentNodeTypes(choices, nodes) {
+    const nodeTypeById = nodes.reduce((result, node) => {
+      result[node.NodeID] = node.NodeType;
+      return result;
+    }, {});
+    return choices.map((choice) => {
+      const activeTooltipType = normalizeChoiceTooltipType(
+        choice.ActiveTooltipType,
+        nodeTypeById[choice.LinkedNodeID]
+      );
+      return activeTooltipType === choice.ActiveTooltipType ? choice : { ...choice, ActiveTooltipType: activeTooltipType };
+    });
   }
 
   // src/utils/DriveApi.js
@@ -175,7 +211,8 @@
       })),
       "Choice\uC2DC\uD2B8": choices.map((c) => {
         const actionStr = (c.OnSelectAction || "").replace(/&\s*\n/g, "& ").replace(/\n/g, ",");
-        let tType = c.ActiveTooltipType;
+        const parentNode = nodes.find((n) => n.NodeID === c.LinkedNodeID);
+        let tType = normalizeChoiceTooltipType(c.ActiveTooltipType, parentNode?.NodeType);
         if ((tType === "ShowChoiceAction" || tType === "Probability") && c.ActiveTooltipValue) {
           tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, "_")}`;
         }
@@ -281,7 +318,7 @@
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
         const pN = nS.map((n) => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
-        const pC = cS.map((c) => {
+        const pC = normalizeChoicesForParentNodeTypes(cS.map((c) => {
           const uiAct = (c.OnSelectAction || "").replace(/,/g, "\n");
           let tT = "None", tV = "";
           if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) {
@@ -290,11 +327,11 @@
           } else if (c.ActiveTooltipType?.startsWith("Probability_")) {
             tT = "Probability";
             tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ",");
-          } else if (c.ActiveTooltipType === "ShowAction") {
-            tT = "ShowAction";
+          } else if (c.ActiveTooltipType === "ShowAction" || c.ActiveTooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD) {
+            tT = c.ActiveTooltipType;
           }
           return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
-        });
+        }), pN);
         const npcMapping = data["Npc\uB9E4\uD551"] || [];
         const eventToNpcMap = {};
         npcMapping.forEach((mapping) => {
@@ -739,6 +776,7 @@
         newChoices = newChoices.filter((c) => !removedChoiceIds.has(c.ChoiceID));
       }
     }
+    newChoices = normalizeChoicesForParentNodeTypes(newChoices, newNodes);
     return {
       newEvents,
       newNodes,
@@ -1011,7 +1049,7 @@
           ChoiceIDs: []
         };
       });
-      const newChoices = clipboard.choices.filter((choice) => {
+      let newChoices = clipboard.choices.filter((choice) => {
         if (clipboard.event.EventType === "Decision" && targetType !== "Decision") {
           const parentNode = clipboard.nodes.find((n) => n.NodeID === choice.LinkedNodeID);
           if (parentNode && isDecisionQuestNodeType(parentNode.NodeType)) {
@@ -1046,6 +1084,7 @@
         choice.OnSelectAction = replaceIdsInString3(choice.OnSelectAction);
         choice.ActiveTooltipValue = replaceIdsInString3(choice.ActiveTooltipValue);
       });
+      newChoices = normalizeChoicesForParentNodeTypes(newChoices, newNodes);
       const newEvent = {
         ...clipboard.event,
         EventID: newEventId,
@@ -1211,7 +1250,7 @@
     const handleChoiceHover = import_react5.default.useCallback((e, choice) => {
       if (draggingChoiceId || editingChoiceCommentId) return;
       let content = "";
-      if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "No actions.";
+      if (choice.ActiveTooltipType === TOOLTIP_TYPE_SHOW_ACTION || choice.ActiveTooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD) content = choice.OnSelectAction || "No actions.";
       else if (choice.ActiveTooltipType === "ShowChoiceAction" && choice.ActiveTooltipValue) {
         content = choices.find((c) => c.ChoiceID === choice.ActiveTooltipValue)?.OnSelectAction || "Ref Error";
       } else if (choice.ActiveTooltipType === "Probability" && choice.ActiveTooltipValue) {
@@ -1252,8 +1291,11 @@
       setEditingWeightData(null);
     };
     const updateTooltipType = (choiceId, type) => {
+      const choice = choices.find((c) => c.ChoiceID === choiceId);
+      const parentNode = nodes.find((n) => n.NodeID === choice?.LinkedNodeID);
+      const nextTooltipType = normalizeChoiceTooltipType(type, parentNode?.NodeType);
       recordHistory();
-      setChoices(choices.map((c) => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: type } : c));
+      setChoices(choices.map((c) => c.ChoiceID === choiceId ? { ...c, ActiveTooltipType: nextTooltipType } : c));
       setCtxMenu({ show: false });
     };
     const disconnectNode = (choiceId, nodeId) => {
@@ -1390,7 +1432,7 @@
         recordHistory();
         const nS = data["Node\uC2DC\uD2B8"] || [], cS = data["Choice\uC2DC\uD2B8"] || [], eS = data["Event\uC2DC\uD2B8"] || [];
         const pN = nS.map((n) => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
-        const pC = cS.map((c) => {
+        const pC = normalizeChoicesForParentNodeTypes(cS.map((c) => {
           const uiAct = (c.OnSelectAction || "").replace(/,/g, "\n");
           let tT = "None", tV = "";
           if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) {
@@ -1399,11 +1441,11 @@
           } else if (c.ActiveTooltipType?.startsWith("Probability_")) {
             tT = "Probability";
             tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ",");
-          } else if (c.ActiveTooltipType === "ShowAction") {
-            tT = "ShowAction";
+          } else if (c.ActiveTooltipType === "ShowAction" || c.ActiveTooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD) {
+            tT = c.ActiveTooltipType;
           }
           return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
-        });
+        }), pN);
         const npcMapping = data["Npc\uB9E4\uD551"] || [];
         const eventToNpcMap = {};
         npcMapping.forEach((mapping) => {
@@ -1510,6 +1552,11 @@
           null,
           import_react5.default.createElement("div", { className: "ctx-divider" }),
           import_react5.default.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, "ShowAction"), className: "ctx-item" }, "ToolTip : Self"),
+          (() => {
+            const choice = choices.find((c) => c.ChoiceID === ctxMenu.id);
+            const parentNode = nodes.find((n) => n.NodeID === choice?.LinkedNodeID);
+            return isDecisionEndNodeType(parentNode?.NodeType) ? import_react5.default.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, TOOLTIP_TYPE_SHOW_DECISION_REWARD), className: "ctx-item" }, "ToolTip : Decision Reward") : null;
+          })(),
           import_react5.default.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, "ShowChoiceAction"), className: "ctx-item" }, "ToolTip : Choice"),
           import_react5.default.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, "Probability"), className: "ctx-item" }, "ToolTip : Probability"),
           import_react5.default.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, "None"), className: "ctx-item opacity-50" }, "ToolTip : None"),
@@ -1542,7 +1589,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.9"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.0"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1805,6 +1852,7 @@
               recordHistory();
               let updatedNodes = [...nodes];
               let updatedChoices = [...choices];
+              let shouldUpdateChoices = false;
               const nextNodeType = normalizeNodeType(v);
               if (isDecisionQuestNodeType(node.NodeType) && !isDecisionQuestNodeType(nextNodeType)) {
                 updatedNodes = updatedNodes.map((n) => {
@@ -1812,14 +1860,22 @@
                     const keptChoices = n.ChoiceIDs.slice(0, 3);
                     const removedChoices = new Set(n.ChoiceIDs.slice(3));
                     updatedChoices = updatedChoices.filter((c) => !removedChoices.has(c.ChoiceID));
+                    shouldUpdateChoices = shouldUpdateChoices || removedChoices.size > 0;
                     return { ...n, NodeType: nextNodeType, ChoiceIDs: keptChoices };
                   }
                   return n;
                 });
-                setChoices(updatedChoices);
               } else {
                 updatedNodes = updatedNodes.map((n) => n.NodeID === node.NodeID ? { ...n, NodeType: nextNodeType } : n);
               }
+              updatedChoices = updatedChoices.map((c) => {
+                if (c.LinkedNodeID !== node.NodeID) return c;
+                const activeTooltipType = normalizeChoiceTooltipType(c.ActiveTooltipType, nextNodeType);
+                if (activeTooltipType === c.ActiveTooltipType) return c;
+                shouldUpdateChoices = true;
+                return { ...c, ActiveTooltipType: activeTooltipType };
+              });
+              if (shouldUpdateChoices) setChoices(updatedChoices);
               setNodes(updatedNodes);
             }, type: "select", options: nodeOptions }), import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: node.DevComment, onChange: (v) => {
               recordHistory();
@@ -1829,6 +1885,9 @@
           selectedElement.type === "choice" && (() => {
             const c = choices.find((x) => x.ChoiceID === selectedElement.id);
             if (!c) return null;
+            const parentNode = nodes.find((n) => n.NodeID === c.LinkedNodeID);
+            const activeTooltipType = normalizeChoiceTooltipType(c.ActiveTooltipType, parentNode?.NodeType);
+            const tooltipOptions = getChoiceTooltipOptions(parentNode?.NodeType);
             return import_react5.default.createElement(
               "div",
               { className: "space-y-5 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" },
@@ -1845,10 +1904,10 @@
                 recordHistory();
                 setChoices(choices.map((x) => x.ChoiceID === c.ChoiceID ? { ...x, ActiveCondition: v } : x));
               } }),
-              import_react5.default.createElement(PropField_default, { label: "Tooltip Type", value: c.ActiveTooltipType, onChange: (v) => {
+              import_react5.default.createElement(PropField_default, { label: "Tooltip Type", value: activeTooltipType, onChange: (v) => {
                 recordHistory();
-                setChoices(choices.map((x) => x.ChoiceID === c.ChoiceID ? { ...x, ActiveTooltipType: v } : x));
-              }, type: "select", options: ["None", "ShowAction", "ShowChoiceAction", "Probability"] }),
+                setChoices(choices.map((x) => x.ChoiceID === c.ChoiceID ? { ...x, ActiveTooltipType: normalizeChoiceTooltipType(v, parentNode?.NodeType) } : x));
+              }, type: "select", options: tooltipOptions }),
               import_react5.default.createElement(PropField_default, { label: "Tooltip Value", value: c.ActiveTooltipValue || "", onChange: (v) => {
                 recordHistory();
                 setChoices(choices.map((x) => x.ChoiceID === c.ChoiceID ? { ...x, ActiveTooltipValue: v } : x));

@@ -5,11 +5,17 @@ import Icon from './components/Icon.js';
 import PropField from './components/PropField.js';
 import {
     getEventSummary,
+    getChoiceTooltipOptions,
     getNodeChoiceLimit,
+    isDecisionEndNodeType,
     isDecisionQuestNodeType,
+    normalizeChoiceTooltipType,
+    normalizeChoicesForParentNodeTypes,
     normalizeNodeType,
     NODE_TYPE_DECISION_END,
-    NODE_TYPE_DECISION_QUEST
+    NODE_TYPE_DECISION_QUEST,
+    TOOLTIP_TYPE_SHOW_ACTION,
+    TOOLTIP_TYPE_SHOW_DECISION_REWARD
 } from './utils/eventHelpers.js';
 import { useEventActions } from './hooks/useEventActions.js';
 import { useGlobalStates } from './hooks/useGlobalStates.js';
@@ -173,7 +179,7 @@ const App = () => {
             };
         });
 
-        const newChoices = clipboard.choices.filter(choice => {
+        let newChoices = clipboard.choices.filter(choice => {
             if (clipboard.event.EventType === 'Decision' && targetType !== 'Decision') {
                 const parentNode = clipboard.nodes.find(n => n.NodeID === choice.LinkedNodeID);
                 if (parentNode && isDecisionQuestNodeType(parentNode.NodeType)) {
@@ -213,6 +219,7 @@ const App = () => {
             choice.OnSelectAction = replaceIdsInString(choice.OnSelectAction);
             choice.ActiveTooltipValue = replaceIdsInString(choice.ActiveTooltipValue);
         });
+        newChoices = normalizeChoicesForParentNodeTypes(newChoices, newNodes);
 
         const newEvent = {
             ...clipboard.event,
@@ -375,7 +382,7 @@ const App = () => {
     const handleChoiceHover = React.useCallback((e, choice) => {
         if (draggingChoiceId || editingChoiceCommentId) return;
         let content = "";
-        if (choice.ActiveTooltipType === "ShowAction") content = choice.OnSelectAction || "No actions.";
+        if (choice.ActiveTooltipType === TOOLTIP_TYPE_SHOW_ACTION || choice.ActiveTooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD) content = choice.OnSelectAction || "No actions.";
         else if (choice.ActiveTooltipType === "ShowChoiceAction" && choice.ActiveTooltipValue) {
             content = choices.find(c => c.ChoiceID === choice.ActiveTooltipValue)?.OnSelectAction || "Ref Error";
         } else if (choice.ActiveTooltipType === "Probability" && choice.ActiveTooltipValue) {
@@ -418,8 +425,12 @@ const App = () => {
     };
 
     const updateTooltipType = (choiceId, type) => {
+        const choice = choices.find(c => c.ChoiceID === choiceId);
+        const parentNode = nodes.find(n => n.NodeID === choice?.LinkedNodeID);
+        const nextTooltipType = normalizeChoiceTooltipType(type, parentNode?.NodeType);
+
         recordHistory();
-        setChoices(choices.map(c => c.ChoiceID === choiceId ? {...c, ActiveTooltipType: type} : c));
+        setChoices(choices.map(c => c.ChoiceID === choiceId ? {...c, ActiveTooltipType: nextTooltipType} : c));
         setCtxMenu({ show: false });
     };
 
@@ -567,14 +578,14 @@ const App = () => {
             const data = JSON.parse(importText); recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
             const pN = nS.map(n => ({ ...n, NodeType: normalizeNodeType(n.NodeType), IllustKey: n.IllustKey ?? "", depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
-            const pC = cS.map(c => {
+            const pC = normalizeChoicesForParentNodeTypes(cS.map(c => {
                 const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";
                 if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
                 else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
-                else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
+                else if (c.ActiveTooltipType === "ShowAction" || c.ActiveTooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD) { tT = c.ActiveTooltipType; }
                 return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
-            });
+            }), pN);
                         const npcMapping = data["Npc매핑"] || [];
             const eventToNpcMap = {};
             npcMapping.forEach(mapping => {
@@ -678,6 +689,13 @@ const App = () => {
                 ctxMenu.type === 'choice' && React.createElement(React.Fragment, null,
                     React.createElement("div", { className: "ctx-divider" }),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'ShowAction'), className: "ctx-item" }, "ToolTip : Self"),
+                    (() => {
+                        const choice = choices.find(c => c.ChoiceID === ctxMenu.id);
+                        const parentNode = nodes.find(n => n.NodeID === choice?.LinkedNodeID);
+                        return isDecisionEndNodeType(parentNode?.NodeType)
+                            ? React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, TOOLTIP_TYPE_SHOW_DECISION_REWARD), className: "ctx-item" }, "ToolTip : Decision Reward")
+                            : null;
+                    })(),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'ShowChoiceAction'), className: "ctx-item" }, "ToolTip : Choice"),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'Probability'), className: "ctx-item" }, "ToolTip : Probability"),
                     React.createElement("button", { onClick: () => updateTooltipType(ctxMenu.id, 'None'), className: "ctx-item opacity-50" }, "ToolTip : None"),
@@ -708,7 +726,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.3.9"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.0"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -882,6 +900,7 @@ const App = () => {
     recordHistory(); 
     let updatedNodes = [...nodes];
     let updatedChoices = [...choices];
+    let shouldUpdateChoices = false;
     const nextNodeType = normalizeNodeType(v);
     
     if (isDecisionQuestNodeType(node.NodeType) && !isDecisionQuestNodeType(nextNodeType)) {
@@ -890,26 +909,39 @@ const App = () => {
                 const keptChoices = n.ChoiceIDs.slice(0, 3);
                 const removedChoices = new Set(n.ChoiceIDs.slice(3));
                 updatedChoices = updatedChoices.filter(c => !removedChoices.has(c.ChoiceID));
+                shouldUpdateChoices = shouldUpdateChoices || removedChoices.size > 0;
                 return { ...n, NodeType: nextNodeType, ChoiceIDs: keptChoices };
             }
             return n;
         });
-        setChoices(updatedChoices);
     } else {
         updatedNodes = updatedNodes.map(n => n.NodeID === node.NodeID ? {...n, NodeType: nextNodeType} : n);
     }
+
+    updatedChoices = updatedChoices.map(c => {
+        if (c.LinkedNodeID !== node.NodeID) return c;
+        const activeTooltipType = normalizeChoiceTooltipType(c.ActiveTooltipType, nextNodeType);
+        if (activeTooltipType === c.ActiveTooltipType) return c;
+        shouldUpdateChoices = true;
+        return { ...c, ActiveTooltipType: activeTooltipType };
+    });
+
+    if (shouldUpdateChoices) setChoices(updatedChoices);
     setNodes(updatedNodes);
 }, type: "select", options: nodeOptions }), React.createElement(PropField, { label: "Dev Comment", value: node.DevComment, onChange: v => { recordHistory(); setNodes(nodes.map(n => n.NodeID === node.NodeID ? {...n, DevComment: v} : n)); }, type: "textarea" }));
                     })(),
                     selectedElement.type === 'choice' && (() => {
                         const c = choices.find(x => x.ChoiceID === selectedElement.id);
                         if (!c) return null;
+                        const parentNode = nodes.find(n => n.NodeID === c.LinkedNodeID);
+                        const activeTooltipType = normalizeChoiceTooltipType(c.ActiveTooltipType, parentNode?.NodeType);
+                        const tooltipOptions = getChoiceTooltipOptions(parentNode?.NodeType);
                         return React.createElement("div", { className: "space-y-5 animate-fadeIn font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold" },
                             React.createElement(PropField, { label: "Choice ID", value: c.ChoiceID, readOnly: true }),
                             React.createElement(PropField, { label: "Dev Comment", value: c.DevComment, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, DevComment: v} : x)); }, type: "textarea" }),
                             React.createElement(PropField, { label: "Actions", value: c.OnSelectAction, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, OnSelectAction: v} : x)); }, type: "textarea", placeholder: "ShowNextNode_NodeF010_100" }),
                             React.createElement(PropField, { label: "Condition", value: c.ActiveCondition, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveCondition: v} : x)); } }),
-                            React.createElement(PropField, { label: "Tooltip Type", value: c.ActiveTooltipType, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipType: v} : x)); }, type: "select", options: ["None", "ShowAction", "ShowChoiceAction", "Probability"] }),
+                            React.createElement(PropField, { label: "Tooltip Type", value: activeTooltipType, onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipType: normalizeChoiceTooltipType(v, parentNode?.NodeType)} : x)); }, type: "select", options: tooltipOptions }),
                             React.createElement(PropField, { label: "Tooltip Value", value: c.ActiveTooltipValue || "", onChange: v => { recordHistory(); setChoices(choices.map(x => x.ChoiceID === c.ChoiceID ? {...x, ActiveTooltipValue: v} : x)); } })
                         );
                     })()

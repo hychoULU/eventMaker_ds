@@ -1,4 +1,10 @@
 import { CLIENT_ID, API_KEY, FOLDER_ID, SCOPES } from './constants.js';
+import {
+    normalizeChoiceTooltipType,
+    normalizeChoicesForParentNodeTypes,
+    normalizeNodeType,
+    TOOLTIP_TYPE_SHOW_DECISION_REWARD
+} from './eventHelpers.js';
 
 let tokenClient;
 let gapiInitialized = false;
@@ -127,7 +133,8 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
         "Node시트": nodes.map(({ depth, ...rest }) => rest),
         "Choice시트": choices.map(c => {
             const actionStr = (c.OnSelectAction || "").replace(/&\s*\n/g, '& ').replace(/\n/g, ',');
-            let tType = c.ActiveTooltipType;
+            const parentNode = nodes.find(n => n.NodeID === c.LinkedNodeID);
+            let tType = normalizeChoiceTooltipType(c.ActiveTooltipType, parentNode?.NodeType);
             if ((tType === 'ShowChoiceAction' || tType === 'Probability') && c.ActiveTooltipValue) {
                 tType = `${tType}_${c.ActiveTooltipValue.replace(/,/g, '_')}`;
             }
@@ -236,16 +243,15 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
 
             recordHistory();
             const nS = data["Node시트"] || [], cS = data["Choice시트"] || [], eS = data["Event시트"] || [];
-            const pN = nS.map(n => ({ ...n, depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
-            const pC = cS.map(c => {
-                const uiAct = (c.OnSelectAction || "").replace(/,/g, '
-');
+            const pN = nS.map(n => ({ ...n, NodeType: normalizeNodeType(n.NodeType), depth: parseInt(n.NodeID.slice(-2, -1)) || 0 }));
+            const pC = normalizeChoicesForParentNodeTypes(cS.map(c => {
+                const uiAct = (c.OnSelectAction || "").replace(/,/g, '\n');
                 let tT = "None", tV = "";
                 if (c.ActiveTooltipType?.startsWith("ShowChoiceAction_")) { tT = "ShowChoiceAction"; tV = c.ActiveTooltipType.replace("ShowChoiceAction_", ""); }
                 else if (c.ActiveTooltipType?.startsWith("Probability_")) { tT = "Probability"; tV = c.ActiveTooltipType.replace("Probability_", "").replace(/_/g, ','); }
-                else if (c.ActiveTooltipType === "ShowAction") { tT = "ShowAction"; }
+                else if (c.ActiveTooltipType === "ShowAction" || c.ActiveTooltipType === TOOLTIP_TYPE_SHOW_DECISION_REWARD) { tT = c.ActiveTooltipType; }
                 return { ...c, OnSelectAction: uiAct, ActiveTooltipType: tT, ActiveTooltipValue: tV };
-            });
+            }), pN);
                         const npcMapping = data["Npc매핑"] || [];
             const eventToNpcMap = {};
             npcMapping.forEach(mapping => {

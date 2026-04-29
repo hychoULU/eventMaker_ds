@@ -1,4 +1,4 @@
-import { getEventSummary, isDecisionQuestNodeType, normalizeNodeType } from './eventHelpers.js';
+import { getEventSummary, isDecisionQuestNodeType, normalizeChoicesForParentNodeTypes, normalizeNodeType } from './eventHelpers.js';
 
 /**
  * Updates all references to old IDs within a given string based on a provided ID map.
@@ -156,6 +156,8 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
             newChoices = newChoices.filter(c => !removedChoiceIds.has(c.ChoiceID));
         }
     }
+
+    newChoices = normalizeChoicesForParentNodeTypes(newChoices, newNodes);
 
     return {
         newEvents,
