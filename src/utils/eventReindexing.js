@@ -2,7 +2,7 @@ import { getEventSummary } from './eventHelpers.js';
 
 /**
  * Updates all references to old IDs within a given string based on a provided ID map.
- * This is used to update properties like OnSelectAction and ActiveTooltipValue.
+ * This is used to update reference strings like StartCondition, OnSelectAction, and ActiveTooltipValue.
  * @param {string} str The string to update.
  * @param {object} idMap A map of oldId -> newId.
  * @returns {string} The updated string.
@@ -11,11 +11,12 @@ const replaceIdsInString = (str, idMap) => {
     if (!str) return str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
     if (sortedOldIds.length === 0) return str;
-    
+
     // Create a single RegExp that matches any of the old IDs.
     // This ensures each substring is replaced exactly once, preventing cyclic replacements.
-    const regex = new RegExp(sortedOldIds.join('|'), 'g');
-    return str.replace(regex, match => idMap[match]);
+    const escapedOldIds = sortedOldIds.map(id => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp(`(^|[^A-Za-z0-9])(${escapedOldIds.join('|')})(?=$|[^A-Za-z0-9])`, 'g');
+    return str.replace(regex, (match, prefix, id) => `${prefix}${idMap[id]}`);
 };
 
 /**
@@ -52,6 +53,7 @@ export const reindexDataAfterDeletion = (deletedEventId, currentEvents, currentN
 
     // 3. Build a comprehensive ID map for all changes
     const idMap = {};
+    const startConditionIdMap = {};
 
     eventsToReindex.forEach(event => {
         const oldEventId = event.EventID;
@@ -59,6 +61,8 @@ export const reindexDataAfterDeletion = (deletedEventId, currentEvents, currentN
         const newIndex = oldIndex - 1;
         const newEventId = `Event_${EventType}${newIndex}`;
         idMap[oldEventId] = newEventId;
+        startConditionIdMap[oldEventId] = newEventId;
+        startConditionIdMap[oldEventId.replace(/^Event_/, '')] = newEventId.replace(/^Event_/, '');
 
         const oldEventSummary = getEventSummary(oldEventId);
         const newEventSummary = getEventSummary(newEventId);
@@ -85,6 +89,7 @@ export const reindexDataAfterDeletion = (deletedEventId, currentEvents, currentN
             ...event,
             EventID: newEventId,
             StartNodeID: idMap[event.StartNodeID] || event.StartNodeID,
+            StartCondition: replaceIdsInString(event.StartCondition, startConditionIdMap),
         };
     });
 

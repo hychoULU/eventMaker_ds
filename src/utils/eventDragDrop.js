@@ -2,7 +2,7 @@ import { getEventSummary, isDecisionQuestNodeType, normalizeChoicesForParentNode
 
 /**
  * Updates all references to old IDs within a given string based on a provided ID map.
- * This is used to update properties like OnSelectAction and ActiveTooltipValue.
+ * This is used to update reference strings like StartCondition, OnSelectAction, and ActiveTooltipValue.
  * @param {string} str The string to update.
  * @param {object} idMap A map of oldId -> newId.
  * @returns {string} The updated string.
@@ -11,11 +11,12 @@ const replaceIdsInString = (str, idMap) => {
     if (!str) return str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
     if (sortedOldIds.length === 0) return str;
-    
+
     // Create a single RegExp that matches any of the old IDs.
     // This ensures each substring is replaced exactly once, preventing cyclic replacements.
-    const regex = new RegExp(sortedOldIds.join('|'), 'g');
-    return str.replace(regex, match => idMap[match]);
+    const escapedOldIds = sortedOldIds.map(id => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp(`(^|[^A-Za-z0-9])(${escapedOldIds.join('|')})(?=$|[^A-Za-z0-9])`, 'g');
+    return str.replace(regex, (match, prefix, id) => `${prefix}${idMap[id]}`);
 };
 
 /**
@@ -62,6 +63,7 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
 
     // 4. Build the ID map based on the new order
     const idMap = {};
+    const startConditionIdMap = {};
     const typeCounters = {};
 
     reorderedEvents.forEach(event => {
@@ -70,9 +72,11 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         
         const oldEventId = event.EventID;
         const newEventId = `Event_${eventType}${typeCounters[eventType]}`;
-        
+
         if (oldEventId !== newEventId) {
             idMap[oldEventId] = newEventId;
+            startConditionIdMap[oldEventId] = newEventId;
+            startConditionIdMap[oldEventId.replace(/^Event_/, '')] = newEventId.replace(/^Event_/, '');
         }
         
         typeCounters[eventType]++;
@@ -112,7 +116,8 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
             ...e,
             EventID: idMap[e.EventID] || e.EventID,
             EventType: needsTypeChange ? newType : e.EventType,
-            StartNodeID: idMap[e.StartNodeID] || e.StartNodeID
+            StartNodeID: idMap[e.StartNodeID] || e.StartNodeID,
+            StartCondition: replaceIdsInString(e.StartCondition, startConditionIdMap)
         };
     }).sort((a, b) => {
         const typeA = a.EventType, typeB = b.EventType;

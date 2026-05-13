@@ -671,8 +671,9 @@
     if (!str) return str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
     if (sortedOldIds.length === 0) return str;
-    const regex = new RegExp(sortedOldIds.join("|"), "g");
-    return str.replace(regex, (match) => idMap[match]);
+    const escapedOldIds = sortedOldIds.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const regex = new RegExp(`(^|[^A-Za-z0-9])(${escapedOldIds.join("|")})(?=$|[^A-Za-z0-9])`, "g");
+    return str.replace(regex, (match, prefix, id) => `${prefix}${idMap[id]}`);
   };
   var reindexDataAfterDrag = (draggedEventId, targetEventId, newType, allEvents, allNodes, allChoices) => {
     const reorderedEvents = JSON.parse(JSON.stringify(allEvents));
@@ -698,6 +699,7 @@
       reorderedEvents.splice(lastIndexOfType + 1, 0, draggedEvent);
     }
     const idMap = {};
+    const startConditionIdMap = {};
     const typeCounters = {};
     reorderedEvents.forEach((event) => {
       const eventType = event.EventType;
@@ -706,6 +708,8 @@
       const newEventId = `Event_${eventType}${typeCounters[eventType]}`;
       if (oldEventId !== newEventId) {
         idMap[oldEventId] = newEventId;
+        startConditionIdMap[oldEventId] = newEventId;
+        startConditionIdMap[oldEventId.replace(/^Event_/, "")] = newEventId.replace(/^Event_/, "");
       }
       typeCounters[eventType]++;
     });
@@ -737,7 +741,8 @@
         ...e,
         EventID: idMap[e.EventID] || e.EventID,
         EventType: needsTypeChange ? newType : e.EventType,
-        StartNodeID: idMap[e.StartNodeID] || e.StartNodeID
+        StartNodeID: idMap[e.StartNodeID] || e.StartNodeID,
+        StartCondition: replaceIdsInString(e.StartCondition, startConditionIdMap)
       };
     }).sort((a, b) => {
       const typeA = a.EventType, typeB = b.EventType;
@@ -790,8 +795,9 @@
     if (!str) return str;
     const sortedOldIds = Object.keys(idMap).sort((a, b) => b.length - a.length);
     if (sortedOldIds.length === 0) return str;
-    const regex = new RegExp(sortedOldIds.join("|"), "g");
-    return str.replace(regex, (match) => idMap[match]);
+    const escapedOldIds = sortedOldIds.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const regex = new RegExp(`(^|[^A-Za-z0-9])(${escapedOldIds.join("|")})(?=$|[^A-Za-z0-9])`, "g");
+    return str.replace(regex, (match, prefix, id) => `${prefix}${idMap[id]}`);
   };
   var reindexDataAfterDeletion = (deletedEventId, currentEvents, currentNodes, currentChoices) => {
     const deletedEvent = currentEvents.find((e) => e.EventID === deletedEventId);
@@ -809,12 +815,15 @@
       return { newEvents, newNodes, newChoices };
     }
     const idMap = {};
+    const startConditionIdMap = {};
     eventsToReindex.forEach((event) => {
       const oldEventId = event.EventID;
       const oldIndex = parseInt(oldEventId.match(/\d+$/)[0]);
       const newIndex = oldIndex - 1;
       const newEventId = `Event_${EventType}${newIndex}`;
       idMap[oldEventId] = newEventId;
+      startConditionIdMap[oldEventId] = newEventId;
+      startConditionIdMap[oldEventId.replace(/^Event_/, "")] = newEventId.replace(/^Event_/, "");
       const oldEventSummary = getEventSummary(oldEventId);
       const newEventSummary = getEventSummary(newEventId);
       const eventNodes = newNodes.filter((n) => n.LinkedEventID === oldEventId);
@@ -835,7 +844,8 @@
       return {
         ...event,
         EventID: newEventId,
-        StartNodeID: idMap[event.StartNodeID] || event.StartNodeID
+        StartNodeID: idMap[event.StartNodeID] || event.StartNodeID,
+        StartCondition: replaceIdsInString2(event.StartCondition, startConditionIdMap)
       };
     });
     newNodes = newNodes.map((node) => {
@@ -1589,7 +1599,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.0"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.1"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
