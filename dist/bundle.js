@@ -42,18 +42,81 @@
   var SCOPES = "https://www.googleapis.com/auth/drive";
 
   // src/utils/eventHelpers.js
+  var EVENT_TYPE_CONFIGS = [
+    {
+      type: "Fixed",
+      summary: "F",
+      description: "\uACE0\uC815\uB41C \uC2DC\uC810\uC5D0 \uB4F1\uC7A5 \uD558\uB294 \uC774\uBCA4\uD2B8. \uBC1C\uC0DD \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74, \uADF8 \uC2DC\uC810\uC5D0 \uC989\uC2DC \uD638\uCD9C \uD55C\uB2E4.Ex) \uC2A4\uD1A0\uB9AC \uC774\uBCA4\uD2B8, \uD018\uC2A4\uD2B8 \uC885\uB8CC\uC2DC \uC774\uBCA4\uD2B8..."
+    },
+    {
+      type: "Event",
+      summary: "E",
+      description: "Event\uB294 \uBE4C\uB4DC\uB9C8\uB2E4 \uC788\uB294 \uC774\uBCA4\uD2B8\uC6A9. \uC2DC\uC98C\uC774 \uC9C0\uB098\uBA74 \uC774\uBCA4\uD2B8 \uACB0\uACFC\uB97C \uC720\uC9C0\uD558\uC9C0 \uC54A\uB294\uB2E4."
+    },
+    {
+      type: "Random",
+      summary: "R",
+      description: "\uCEA0\uD398\uC778 \uD0C0\uC784\uC5D0 \uB530\uB77C \uBC1C\uC0DD \uD558\uB294 \uC774\uBCA4\uD2B8 \uD480. \uB79C\uB364 \uC774\uBCA4\uD2B8 \uBC1C\uC0DD \uC2DC\uC810\uC5D0, \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74 \uBC1C\uC0DD \uD480\uC5D0 \uB123\uC5B4\uC11C \uC81C\uBE44\uBF51\uAE30 \uD55C\uB2E4.Ex) \uCC9C\uC0C9\uC870 \uC774\uBCA4\uD2B8\u2026"
+    },
+    {
+      type: "Npc",
+      summary: "N",
+      description: "NPC\uC640 \uAD00\uB828\uB41C \uACE0\uC815 \uC774\uBCA4\uD2B8."
+    },
+    {
+      type: "Tutorial",
+      summary: "T",
+      description: "\uD29C\uD1A0\uB9AC\uC5BC\uACFC \uAD00\uB828\uB41C \uC774\uBCA4\uD2B8."
+    },
+    {
+      type: "Decision",
+      summary: "D",
+      description: "\uC0AC\uC6A9\uC790\uC758 \uACB0\uC815\uC744 \uC694\uAD6C\uD558\uB294 \uC774\uBCA4\uD2B8.",
+      isDecisionFamily: true
+    },
+    {
+      type: "DecisionResult",
+      summary: "DR",
+      description: "Decision\uC758 \uACB0\uACFC\uC6A9 \uC774\uBCA4\uD2B8. \uB2E4\uB978 \uC774\uBCA4\uD2B8\uB294 \uC77C\uB2E8 \uB123\uC9C0 \uB9D0\uAC83",
+      isDecisionFamily: true
+    }
+  ];
+  var EVENT_TYPES = EVENT_TYPE_CONFIGS.map((config) => config.type);
+  var EVENT_TYPE_ORDER = EVENT_TYPES;
+  var EVENT_TYPE_CONFIG_BY_TYPE = EVENT_TYPE_CONFIGS.reduce((result, config) => {
+    result[config.type] = config;
+    return result;
+  }, {});
+  function getEventTypeSummary(eventType) {
+    if (!eventType) return "F";
+    if (EVENT_TYPE_CONFIG_BY_TYPE[eventType]?.summary) {
+      return EVENT_TYPE_CONFIG_BY_TYPE[eventType].summary;
+    }
+    const upperChars = eventType.match(/[A-Z]/g);
+    if (upperChars && upperChars.length > 0) {
+      return upperChars.join("");
+    }
+    return eventType.charAt(0).toUpperCase();
+  }
   function getEventSummary(eventId) {
     if (!eventId) return "E";
-    const match = eventId.match(/_(Random|Fixed|Npc|Tutorial|Decision)(\d+)/);
+    const match = eventId.match(/^Event_([A-Za-z]+)(\d+)$/);
     if (match && match[1] && match[2]) {
-      const typeChar2 = match[1].charAt(0);
+      const eventType2 = match[1];
       const number = match[2];
-      return `${typeChar2}${number}`;
+      return `${getEventTypeSummary(eventType2)}${number}`;
     }
     const parts = eventId.split("_");
-    const typeChar = parts[1] ? parts[1].charAt(0) : "F";
-    const numMatch = parts[1]?.match(/\d+/);
-    return `${typeChar}${numMatch ? numMatch[0] : "0"}`;
+    const eventTypeWithNumber = parts[1] || "";
+    const eventType = eventTypeWithNumber.replace(/\d+$/, "");
+    const numMatch = eventTypeWithNumber.match(/\d+$/);
+    return `${getEventTypeSummary(eventType)}${numMatch ? numMatch[0] : "0"}`;
+  }
+  function getEventTypeDescription(eventType) {
+    return EVENT_TYPE_CONFIG_BY_TYPE[eventType]?.description || "";
+  }
+  function isDecisionEventType(eventType) {
+    return Boolean(EVENT_TYPE_CONFIG_BY_TYPE[eventType]?.isDecisionFamily);
   }
   var NODE_TYPE_DECISION_QUEST = "DecisionQuest";
   var NODE_TYPE_DECISION_END = "DecisionEnd";
@@ -748,7 +811,7 @@
       const typeA = a.EventType, typeB = b.EventType;
       const indexA = parseInt(a.EventID.match(/\d+$/)[0]);
       const indexB = parseInt(b.EventID.match(/\d+$/)[0]);
-      const typeOrder = ["Fixed", "Random", "Npc", "Tutorial", "Decision"];
+      const typeOrder = EVENT_TYPE_ORDER;
       if (typeA !== typeB) return typeOrder.indexOf(typeA) - typeOrder.indexOf(typeB);
       return indexA - indexB;
     });
@@ -766,7 +829,7 @@
       OnSelectAction: replaceIdsInString(c.OnSelectAction, idMap),
       ActiveTooltipValue: replaceIdsInString(c.ActiveTooltipValue, idMap)
     }));
-    if (originalType === "Decision" && newType !== "Decision") {
+    if (isDecisionEventType(originalType) && !isDecisionEventType(newType)) {
       const draggedNewId = idMap[draggedEventId] || draggedEventId;
       const removedChoiceIds = /* @__PURE__ */ new Set();
       newNodes = newNodes.map((n) => {
@@ -1025,7 +1088,7 @@
       if (!clipboard || clipboard.type !== "event") return;
       recordHistory();
       let targetType = "Fixed";
-      if (typeof targetEventIdOrType === "string" && ["Fixed", "Random", "Npc", "Tutorial", "Decision"].includes(targetEventIdOrType)) {
+      if (typeof targetEventIdOrType === "string" && EVENT_TYPES.includes(targetEventIdOrType)) {
         targetType = targetEventIdOrType;
       } else if (typeof targetEventIdOrType === "string" && targetEventIdOrType.startsWith("Event_")) {
         targetType = events.find((e) => e.EventID === targetEventIdOrType)?.EventType || "Fixed";
@@ -1048,7 +1111,7 @@
         const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
         idMap[oldNodeId] = newNodeId;
         let nodeType = normalizeNodeType(node.NodeType);
-        if (clipboard.event.EventType === "Decision" && targetType !== "Decision" && isDecisionQuestNodeType(nodeType)) {
+        if (isDecisionEventType(clipboard.event.EventType) && !isDecisionEventType(targetType) && isDecisionQuestNodeType(nodeType)) {
           nodeType = "Normal";
         }
         return {
@@ -1060,7 +1123,7 @@
         };
       });
       let newChoices = clipboard.choices.filter((choice) => {
-        if (clipboard.event.EventType === "Decision" && targetType !== "Decision") {
+        if (isDecisionEventType(clipboard.event.EventType) && !isDecisionEventType(targetType)) {
           const parentNode = clipboard.nodes.find((n) => n.NodeID === choice.LinkedNodeID);
           if (parentNode && isDecisionQuestNodeType(parentNode.NodeType)) {
             const choiceIndex = parentNode.ChoiceIDs.indexOf(choice.ChoiceID);
@@ -1599,7 +1662,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.1"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.2"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1614,7 +1677,7 @@
         import_react5.default.createElement(
           "div",
           { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
-          ["Fixed", "Random", "Npc", "Tutorial", "Decision"].map((type) => import_react5.default.createElement(
+          EVENT_TYPES.map((type) => import_react5.default.createElement(
             "div",
             {
               key: type,
@@ -1626,7 +1689,7 @@
               className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
               onClick: () => setCollapsedSections((prev) => ({ ...prev, [type]: !prev[type] })),
               onMouseEnter: (e) => {
-                let content = type === "Fixed" ? "\uACE0\uC815\uB41C \uC2DC\uC810\uC5D0 \uB4F1\uC7A5 \uD558\uB294 \uC774\uBCA4\uD2B8. \uBC1C\uC0DD \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74, \uADF8 \uC2DC\uC810\uC5D0 \uC989\uC2DC \uD638\uCD9C \uD55C\uB2E4.Ex) \uC2A4\uD1A0\uB9AC \uC774\uBCA4\uD2B8, \uD018\uC2A4\uD2B8 \uC885\uB8CC\uC2DC \uC774\uBCA4\uD2B8..." : type === "Random" ? "\uCEA0\uD398\uC778 \uD0C0\uC784\uC5D0 \uB530\uB77C \uBC1C\uC0DD \uD558\uB294 \uC774\uBCA4\uD2B8 \uD480. \uB79C\uB364 \uC774\uBCA4\uD2B8 \uBC1C\uC0DD \uC2DC\uC810\uC5D0, \uC870\uAC74\uC744 \uB9CC\uC871 \uC2DC\uCF30\uB2E4\uBA74 \uBC1C\uC0DD \uD480\uC5D0 \uB123\uC5B4\uC11C \uC81C\uBE44\uBF51\uAE30 \uD55C\uB2E4.Ex) \uCC9C\uC0C9\uC870 \uC774\uBCA4\uD2B8\u2026" : type === "Npc" ? "NPC\uC640 \uAD00\uB828\uB41C \uACE0\uC815 \uC774\uBCA4\uD2B8." : type === "Tutorial" ? "\uD29C\uD1A0\uB9AC\uC5BC\uACFC \uAD00\uB828\uB41C \uC774\uBCA4\uD2B8." : "\uC0AC\uC6A9\uC790\uC758 \uACB0\uC815\uC744 \uC694\uAD6C\uD558\uB294 \uC774\uBCA4\uD2B8.";
+                const content = getEventTypeDescription(type);
                 setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
               },
               onMouseLeave: () => setTooltip({ show: false })
@@ -1851,7 +1914,7 @@
             const node = nodes.find((n) => n.NodeID === selectedElement.id);
             if (!node) return null;
             const event = events.find((e) => e.EventID === node.LinkedEventID);
-            const isDecision = event?.EventType === "Decision";
+            const isDecision = isDecisionEventType(event?.EventType);
             const nodeOptions = ["Normal", "Hidden"];
             if (isDecision) nodeOptions.push(NODE_TYPE_DECISION_QUEST);
             nodeOptions.push(NODE_TYPE_DECISION_END);

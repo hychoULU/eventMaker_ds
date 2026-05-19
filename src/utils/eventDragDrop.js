@@ -1,4 +1,4 @@
-import { getEventSummary, isDecisionQuestNodeType, normalizeChoicesForParentNodeTypes, normalizeNodeType } from './eventHelpers.js';
+import { EVENT_TYPE_ORDER, getEventSummary, isDecisionEventType, isDecisionQuestNodeType, normalizeChoicesForParentNodeTypes, normalizeNodeType } from './eventHelpers.js';
 
 /**
  * Updates all references to old IDs within a given string based on a provided ID map.
@@ -123,7 +123,7 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         const typeA = a.EventType, typeB = b.EventType;
         const indexA = parseInt(a.EventID.match(/\d+$/)[0]);
         const indexB = parseInt(b.EventID.match(/\d+$/)[0]);
-        const typeOrder = ['Fixed', 'Random', 'Npc', 'Tutorial', 'Decision'];
+        const typeOrder = EVENT_TYPE_ORDER;
         if(typeA !== typeB) return typeOrder.indexOf(typeA) - typeOrder.indexOf(typeB);
         return indexA - indexB;
     });
@@ -144,7 +144,7 @@ export const reindexDataAfterDrag = (draggedEventId, targetEventId, newType, all
         ActiveTooltipValue: replaceIdsInString(c.ActiveTooltipValue, idMap)
     }));
 
-    if (originalType === 'Decision' && newType !== 'Decision') {
+    if (isDecisionEventType(originalType) && !isDecisionEventType(newType)) {
         const draggedNewId = idMap[draggedEventId] || draggedEventId;
         const removedChoiceIds = new Set();
         

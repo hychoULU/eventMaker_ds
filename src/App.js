@@ -4,10 +4,13 @@ import { initGoogleApis, executeAfterAuth, uploadToDrive, loadFromDrive } from '
 import Icon from './components/Icon.js';
 import PropField from './components/PropField.js';
 import {
+    EVENT_TYPES,
     getEventSummary,
+    getEventTypeDescription,
     getChoiceTooltipOptions,
     getNodeChoiceLimit,
     isDecisionEndNodeType,
+    isDecisionEventType,
     isDecisionQuestNodeType,
     normalizeChoiceTooltipType,
     normalizeChoicesForParentNodeTypes,
@@ -138,7 +141,7 @@ const App = () => {
         recordHistory();
 
         let targetType = 'Fixed';
-        if (typeof targetEventIdOrType === 'string' && ['Fixed', 'Random', 'Npc', 'Tutorial', 'Decision'].includes(targetEventIdOrType)) {
+        if (typeof targetEventIdOrType === 'string' && EVENT_TYPES.includes(targetEventIdOrType)) {
             targetType = targetEventIdOrType;
         } else if (typeof targetEventIdOrType === 'string' && targetEventIdOrType.startsWith('Event_')) {
             targetType = events.find(e => e.EventID === targetEventIdOrType)?.EventType || 'Fixed';
@@ -167,7 +170,7 @@ const App = () => {
             const newNodeId = oldNodeId.replace(`Node${oldEventSummary}`, `Node${newEventSummary}`);
             idMap[oldNodeId] = newNodeId;
             let nodeType = normalizeNodeType(node.NodeType);
-            if (clipboard.event.EventType === 'Decision' && targetType !== 'Decision' && isDecisionQuestNodeType(nodeType)) {
+            if (isDecisionEventType(clipboard.event.EventType) && !isDecisionEventType(targetType) && isDecisionQuestNodeType(nodeType)) {
                 nodeType = 'Normal';
             }
             return {
@@ -180,7 +183,7 @@ const App = () => {
         });
 
         let newChoices = clipboard.choices.filter(choice => {
-            if (clipboard.event.EventType === 'Decision' && targetType !== 'Decision') {
+            if (isDecisionEventType(clipboard.event.EventType) && !isDecisionEventType(targetType)) {
                 const parentNode = clipboard.nodes.find(n => n.NodeID === choice.LinkedNodeID);
                 if (parentNode && isDecisionQuestNodeType(parentNode.NodeType)) {
                     const choiceIndex = parentNode.ChoiceIDs.indexOf(choice.ChoiceID);
@@ -726,7 +729,7 @@ const App = () => {
             ),
 
             React.createElement("aside", { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.1"),
+                React.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.2"),
                 React.createElement("div", { className: "p-3 pb-0" },
                     React.createElement("input", { 
                         type: "text", 
@@ -737,7 +740,7 @@ const App = () => {
                     })
                 ),
                 React.createElement("div", { className: "flex-1 overflow-y-auto p-3 space-y-5 font-bold" },
-                    ['Fixed', 'Random', 'Npc', 'Tutorial', 'Decision'].map(type => (
+                    EVENT_TYPES.map(type => (
                         React.createElement("div", { 
                             key: type, 
                             onContextMenu: (e) => handleContextMenu(e, 'event-list', type),
@@ -748,15 +751,7 @@ const App = () => {
                                 className: "text-[10px] font-black text-gray-400 mb-2 uppercase px-2 tracking-widest font-bold font-bold cursor-pointer flex items-center gap-2",
                                 onClick: () => setCollapsedSections(prev => ({...prev, [type]: !prev[type]})),
                                 onMouseEnter: (e) => {
-                                    let content = type === 'Fixed' 
-                                        ? "고정된 시점에 등장 하는 이벤트. 발생 조건을 만족 시켰다면, 그 시점에 즉시 호출 한다.Ex) 스토리 이벤트, 퀘스트 종료시 이벤트..."
-                                        : type === 'Random'
-                                            ? "캠페인 타임에 따라 발생 하는 이벤트 풀. 랜덤 이벤트 발생 시점에, 조건을 만족 시켰다면 발생 풀에 넣어서 제비뽑기 한다.Ex) 천색조 이벤트…"
-                                            : type === 'Npc'
-                                                ? "NPC와 관련된 고정 이벤트."
-                                                : type === 'Tutorial' 
-                                                    ? "튜토리얼과 관련된 이벤트." 
-                                                    : "사용자의 결정을 요구하는 이벤트.";
+                                    const content = getEventTypeDescription(type);
                                     setTooltip({ show: true, x: e.clientX, y: e.clientY, content });
                                 },
                                 onMouseLeave: () => setTooltip({ show: false })
@@ -892,7 +887,7 @@ const App = () => {
                         const node = nodes.find(n => n.NodeID === selectedElement.id);
                         if (!node) return null;
                         const event = events.find(e => e.EventID === node.LinkedEventID);
-                        const isDecision = event?.EventType === 'Decision';
+                        const isDecision = isDecisionEventType(event?.EventType);
                         const nodeOptions = ["Normal", "Hidden"];
                         if (isDecision) nodeOptions.push(NODE_TYPE_DECISION_QUEST);
                         nodeOptions.push(NODE_TYPE_DECISION_END);
