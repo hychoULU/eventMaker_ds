@@ -1,13 +1,23 @@
 {
+  "Random매핑": [
+    {
+      "EventID": "Event_Random0",
+      "Weight": 100,
+      "IsAlertShow": false
+    }
+  ],
+  "Npc매핑": [],
   "Event시트": [
     {
       "EventID": "Event_Random0",
+      "KeyWord": "Event_Random0",
+      "DevComment2": "",
       "DevComment": "도박꾼",
       "StartNodeID": "NodeR000",
       "StartCondition": "None",
       "TargetUnitCondition": "None",
+      "EventScope": "Scene",
       "EventType": "Random",
-      "Weight": 100,
       "IsRepeatable": false,
       "CoolDown": 0
     }

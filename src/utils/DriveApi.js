@@ -118,6 +118,8 @@ export const uploadToDrive = async (events, nodes, choices, showToast) => {
             }
             return {
                 ...e,
+                KeyWord: e.KeyWord ?? e.EventID,
+                DevComment2: e.DevComment2 ?? "",
                 StartCondition: startConds.length > 0 ? startConds.join(' && ') : 'None',
                 TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter(s => s.trim()).join(','),
                 EventScope: e.EventScope || "Scene"
@@ -303,6 +305,8 @@ export const loadFromDrive = async (setEvents, setNodes, setChoices, setSelected
                     });
                 const newE = {
                     ...e,
+                    KeyWord: e.KeyWord ?? e.EventID,
+                    DevComment2: e.DevComment2 ?? "",
                     StartCondition: startConds.length > 0 ? startConds.join(' && ') : 'None',
                     TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, '\n'),
                     IsRepeatable: parsedIsRepeatable,

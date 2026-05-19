@@ -263,6 +263,8 @@
         }
         return {
           ...e,
+          KeyWord: e.KeyWord ?? e.EventID,
+          DevComment2: e.DevComment2 ?? "",
           StartCondition: startConds.length > 0 ? startConds.join(" && ") : "None",
           TargetUnitCondition: (e.TargetUnitCondition || "").split(/[\n,]/).filter((s) => s.trim()).join(","),
           EventScope: e.EventScope || "Scene"
@@ -434,6 +436,8 @@
           });
           const newE = {
             ...e,
+            KeyWord: e.KeyWord ?? e.EventID,
+            DevComment2: e.DevComment2 ?? "",
             StartCondition: startConds.length > 0 ? startConds.join(" && ") : "None",
             TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
             IsRepeatable: parsedIsRepeatable,
@@ -565,7 +569,7 @@
       const id = `Event_${type}${newIndex}`;
       const startId = `Node${getEventSummary(id)}00`;
       const startChoiceId = `Choice${getEventSummary(id)}000`;
-      const newEvent = { EventID: id, DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, IsRepeatable: false, CoolDown: 0 };
+      const newEvent = { EventID: id, KeyWord: id, DevComment2: "", DevComment: "New Event", StartNodeID: startId, StartCondition: "None", TargetUnitCondition: "None", EventScope: "Scene", EventType: type, IsRepeatable: false, CoolDown: 0 };
       if (type === "Random") {
         newEvent.Weight = 100;
         newEvent.IsAlertShow = false;
@@ -1003,6 +1007,16 @@
       createNode,
       createChoice
     } = useEventActions(events, setEvents, nodes, setNodes, choices, setChoices, selectedEventId, setSelectedEventId, setSelectedElement, recordHistory, showToast);
+    const duplicateKeywordEntries = import_react5.default.useMemo(() => {
+      const keywordMap = /* @__PURE__ */ new Map();
+      events.forEach((event) => {
+        const normalizedKey = (event.KeyWord ?? event.EventID ?? "").trim();
+        const linkedEvents = keywordMap.get(normalizedKey) || [];
+        linkedEvents.push(event.EventID);
+        keywordMap.set(normalizedKey, linkedEvents);
+      });
+      return Array.from(keywordMap.entries()).filter(([, linkedEvents]) => linkedEvents.length > 1).map(([key, linkedEvents]) => ({ key, linkedEvents }));
+    }, [events]);
     const handleLoadFromDrive = import_react5.default.useCallback(() => {
       executeAfterAuth(() => loadFromDrive(setEvents, setNodes, setChoices, setSelectedEventId, showToast, recordHistory, gapiInitialized, gisInited), showToast, gapiInitialized, gisInited);
     }, [setEvents, setNodes, setChoices, setSelectedEventId, showToast, recordHistory, gapiInitialized, gisInited]);
@@ -1017,8 +1031,13 @@
       }
     }, [gapiInitialized, gisInited, hasAutoLoaded, handleLoadFromDrive]);
     const handleUploadToDrive = import_react5.default.useCallback(() => {
+      if (duplicateKeywordEntries.length > 0) {
+        const duplicatedKeys = duplicateKeywordEntries.map(({ key }) => key || "(\uBE48 \uAC12)").join(", ");
+        showToast(`\uC911\uBCF5\uB41C KeyWord\uAC00 \uC788\uC5B4 \uC800\uC7A5\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4: ${duplicatedKeys}`);
+        return;
+      }
       executeAfterAuth(() => uploadToDrive(events, nodes, choices, showToast), showToast, gapiInitialized, gisInited);
-    }, [events, nodes, choices, showToast, gapiInitialized, gisInited]);
+    }, [events, nodes, choices, showToast, gapiInitialized, gisInited, duplicateKeywordEntries]);
     const saveDevComment = import_react5.default.useCallback(() => {
       if (editingNodeCommentId) {
         const node = nodes.find((n) => n.NodeID === editingNodeCommentId);
@@ -1161,6 +1180,8 @@
       const newEvent = {
         ...clipboard.event,
         EventID: newEventId,
+        KeyWord: newEventId,
+        DevComment2: clipboard.event.DevComment2 ?? "",
         EventType: targetType,
         StartNodeID: idMap[clipboard.event.StartNodeID] || ""
       };
@@ -1522,7 +1543,12 @@
         const npcMapping = data["Npc\uB9E4\uD551"] || [];
         const eventToNpcMap = {};
         npcMapping.forEach((mapping) => {
-          if (mapping.EventToWeight) {
+          if (mapping.LinkedEvents) {
+            const keys = mapping.LinkedEvents.split(",");
+            keys.forEach((key) => {
+              eventToNpcMap[key] = mapping.NpcID;
+            });
+          } else if (mapping.EventToWeight) {
             const pairs = mapping.EventToWeight.split(",");
             pairs.forEach((pair) => {
               const match = pair.match(/^(.*)_(\d+)$/);
@@ -1530,11 +1556,42 @@
             });
           }
         });
-        const pE = eS.map((e) => ({
-          ...e,
-          TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
-          NpcID: eventToNpcMap[e.EventID] || e.NpcID || ""
-        }));
+        const randomMapping = data["Random\uB9E4\uD551"] || [];
+        const eventToRandomMap = {};
+        randomMapping.forEach((mapping) => {
+          eventToRandomMap[mapping.EventID] = {
+            Weight: mapping.Weight,
+            IsAlertShow: mapping.IsAlertShow
+          };
+        });
+        const pE = eS.map((e) => {
+          const eventKey = e.EventID.replace(/^Event_/, "");
+          let parsedCooldown = e.CoolDown !== void 0 ? e.CoolDown : 0;
+          let parsedIsRepeatable = e.IsRepeatable || false;
+          const startConds = (e.StartCondition || "").split(/\s*(?:&&|,)\s*/).map((s) => s.trim()).filter((s) => s !== "" && s !== "None").filter((s) => {
+            const match = s.match(new RegExp(`^Cooldown_(?:${e.EventID}|${eventKey})_(\\d+)$`));
+            if (!match) {
+              return true;
+            }
+            parsedIsRepeatable = true;
+            parsedCooldown = parseInt(match[1], 10) || 0;
+            return false;
+          });
+          const newE = {
+            ...e,
+            KeyWord: e.KeyWord ?? e.EventID,
+            DevComment2: e.DevComment2 ?? "",
+            StartCondition: startConds.length > 0 ? startConds.join(" && ") : "None",
+            TargetUnitCondition: (e.TargetUnitCondition || "").replace(/,/g, "\n"),
+            IsRepeatable: parsedIsRepeatable,
+            CoolDown: parsedCooldown,
+            NpcID: eventToNpcMap[e.EventID] || e.NpcID || "",
+            Weight: eventToRandomMap[e.EventID]?.Weight !== void 0 ? eventToRandomMap[e.EventID].Weight : e.Weight !== void 0 ? e.Weight : 100,
+            IsAlertShow: eventToRandomMap[e.EventID]?.IsAlertShow !== void 0 ? eventToRandomMap[e.EventID].IsAlertShow : e.IsAlertShow !== void 0 ? e.IsAlertShow : e.IsImmediate || false
+          };
+          delete newE.IsImmediate;
+          return newE;
+        });
         setEvents(pE);
         setNodes(pN);
         setChoices(pC);
@@ -1662,7 +1719,7 @@
       import_react5.default.createElement(
         "aside",
         { className: "w-64 bg-white border-r flex flex-col shrink-0 shadow-lg z-30" },
-        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.2"),
+        import_react5.default.createElement("div", { className: "p-5 border-b font-black text-blue-600 tracking-tighter uppercase italic text-sm" }, "Visual Editor v3.4.3"),
         import_react5.default.createElement(
           "div",
           { className: "p-3 pb-0" },
@@ -1724,12 +1781,17 @@
                   onKeyDown: (e) => {
                     if (e.key === "Enter" || e.key === "Escape") saveDevComment();
                   }
-                }) : import_react5.default.createElement("div", { className: "text-sm truncate font-bold", onDoubleClick: (e) => {
-                  e.stopPropagation();
-                  setEditingEventCommentId(ev.EventID);
-                  setTempValue(ev.DevComment);
-                } }, ev.DevComment),
-                import_react5.default.createElement("div", { className: "text-[10px] truncate opacity-60 font-medium" }, ev.EventID)
+                }) : import_react5.default.createElement(
+                  "div",
+                  { className: "space-y-1" },
+                  import_react5.default.createElement("div", { className: "text-[10px] truncate opacity-70 font-medium" }, ev.DevComment2 || ""),
+                  import_react5.default.createElement("div", { className: "text-sm truncate font-bold", onDoubleClick: (e) => {
+                    e.stopPropagation();
+                    setEditingEventCommentId(ev.EventID);
+                    setTempValue(ev.DevComment);
+                  } }, ev.DevComment),
+                  import_react5.default.createElement("div", { className: "text-[10px] truncate opacity-60 font-medium" }, ev.EventID)
+                )
               ),
               import_react5.default.createElement("button", { onClick: (e) => {
                 e.stopPropagation();
@@ -1869,6 +1931,14 @@
               "div",
               { className: "space-y-4 animate-fadeIn" },
               import_react5.default.createElement(PropField_default, { label: "Event ID", value: ev.EventID, readOnly: true }),
+              import_react5.default.createElement(PropField_default, { label: "KeyWord", value: ev.KeyWord ?? ev.EventID, onChange: (v) => {
+                recordHistory();
+                setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, KeyWord: v } : e));
+              } }),
+              import_react5.default.createElement(PropField_default, { label: "DevComment2", value: ev.DevComment2 ?? "", onChange: (v) => {
+                recordHistory();
+                setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, DevComment2: v } : e));
+              }, type: "textarea" }),
               import_react5.default.createElement(PropField_default, { label: "Dev Comment", value: ev.DevComment, onChange: (v) => {
                 recordHistory();
                 setEvents(events.map((e) => e.EventID === ev.EventID ? { ...e, DevComment: v } : e));
